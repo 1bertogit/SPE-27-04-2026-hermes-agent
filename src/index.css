@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-editorial-cream dark:border-editorial-navy-light/30;
+  }
+
+  body {
+    @apply bg-editorial-paper text-editorial-navy font-sans dark:bg-editorial-navy-dark dark:text-editorial-cream;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  }
+
+  .dark body,
+  html.dark body {
+    background-image: none;
+  }
+
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-editorial-cream/50 dark:bg-editorial-navy/50;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-editorial-warm rounded-full dark:bg-editorial-navy-light;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-editorial-muted dark:bg-editorial-muted;
+  }
+
+  ::selection {
+    background-color: #C5A05930;
+    color: #1A2B48;
+  }
+
+  .dark ::selection {
+    background-color: #C5A05940;
+    color: #FAF9F7;
+  }
+}
+
+@layer components {
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-editorial-gold/50 focus-visible:ring-offset-2 focus-visible:ring-offset-editorial-paper dark:focus-visible:ring-offset-editorial-navy-dark;
+  }
+
+  .card {
+    @apply bg-editorial-light border border-editorial-cream rounded-lg shadow-sm dark:bg-editorial-navy/60 dark:border-editorial-navy-light/20;
+  }
+
+  .glass {
+    @apply bg-white/60 backdrop-blur-xl border border-editorial-cream/60 dark:bg-editorial-navy/40 dark:border-editorial-navy-light/20;
+  }
+
+  .glass-editorial {
+    @apply bg-white/70 backdrop-blur-xl border border-editorial-gold/10 shadow-sm dark:bg-editorial-navy/50 dark:border-editorial-gold/10;
+  }
+
+  .editorial-grid {
+    background-image:
+      linear-gradient(to right, #C5A05908 1px, transparent 1px),
+      linear-gradient(to bottom, #C5A05908 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .dark .editorial-grid {
+    background-image:
+      linear-gradient(to right, #C5A05906 1px, transparent 1px),
+      linear-gradient(to bottom, #C5A05906 1px, transparent 1px);
+  }
+
+  .watermark-rb {
+    @apply pointer-events-none select-none fixed bottom-0 right-0 font-serif leading-none;
+    font-size: 28vw;
+    opacity: 0.025;
+    color: #1A2B48;
+    z-index: 0;
+  }
+
+  .dark .watermark-rb {
+    color: #FAF9F7;
+    opacity: 0.02;
+  }
+}
