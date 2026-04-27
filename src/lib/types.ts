@@ -367,3 +367,58 @@ export interface NPSMetrics {
   referralsSent: number;
   referralsConverted: number;
 }
+
+// AI & Agents
+export interface AISkill {
+  id: string;
+  org_id: string | null;
+  is_system: boolean;
+  parent_skill_id: string | null;
+  name: string;
+  slug: string;
+  description: string | null;
+  agent_type: 'MessageAgent' | 'ResponseAnalyzer' | 'DocumentGenerator';
+  system_prompt: string;
+  user_prompt_template: string | null;
+  model_config: {
+    model: string;
+    temperature: number;
+    max_tokens: number;
+    top_p?: number;
+  };
+  available_tools: string[];
+  output_schema: Record<string, unknown> | null;
+  auto_trigger: Record<string, unknown> | null;
+  is_active: boolean;
+  priority: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentExecution {
+  id: string;
+  org_id: string;
+  patient_id: string | null;
+  agent_type: 'MessageAgent' | 'ResponseAnalyzer' | 'DocumentGenerator' | 'HarnessRunner';
+  skill_name: string | null;
+  input_payload: Record<string, unknown>;
+  context: Record<string, unknown> | null;
+  output_payload: Record<string, unknown> | null;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  started_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
+  error_message: string | null;
+  error_stack: Record<string, unknown> | null;
+  parent_execution_id: string | null;
+  execution_chain: string[] | null;
+  harness_phase: number | null;
+  harness_status: 'pending' | 'running' | 'completed' | 'skipped' | 'failed' | null;
+  locked_by: string | null;
+  locked_at: string | null;
+  created_at: string;
+}

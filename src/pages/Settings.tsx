@@ -2,9 +2,10 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as Tabs from '@radix-ui/react-tabs';
-import { Save, User, Building2, Users, Send } from 'lucide-react';
+import { Save, User, Building2, Users, Send, Bot } from 'lucide-react';
 import OrgMembersTab from '../components/settings/OrgMembersTab';
 import TelegramSettingsTab from '../components/settings/TelegramSettingsTab';
+import AISkillsTab from '../components/settings/AISkillsTab';
 import { Card, CardTitle, CardDescription } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input, Textarea, Select } from '../components/ui/Input';
@@ -88,6 +89,13 @@ export default function Settings() {
           >
             <Send className="h-4 w-4" />
             Telegram
+          </Tabs.Trigger>
+          <Tabs.Trigger
+            value="ai-skills"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-editorial-muted border-b-2 border-transparent transition-colors data-[state=active]:text-editorial-gold data-[state=active]:border-editorial-gold hover:text-editorial-navy dark:hover:text-editorial-cream focus-ring rounded-t-lg"
+          >
+            <Bot className="h-4 w-4" />
+            AI Skills
           </Tabs.Trigger>
         </Tabs.List>
 
@@ -179,6 +187,10 @@ export default function Settings() {
 
         <Tabs.Content value="telegram" className="space-y-6">
           <TelegramSettingsTab />
+        </Tabs.Content>
+
+        <Tabs.Content value="ai-skills" className="space-y-6">
+          <AISkillsTab />
         </Tabs.Content>
       </Tabs.Root>
     </div>
