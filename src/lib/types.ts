@@ -339,3 +339,31 @@ export interface OrgContext {
   orgId: string;
   role: Role;
 }
+
+// NPS & Referrals
+export interface Referral {
+  id: string;
+  org_id: string;
+  referrer_patient_id: string;
+  referred_name: string;
+  referred_phone: string | null;
+  referred_email: string | null;
+  status: 'pending' | 'contacted' | 'converted' | 'declined';
+  nps_survey_id: string | null;
+  notes: string | null;
+  converted_at: string | null;
+  created_at: string;
+  updated_at: string;
+  referrer?: Patient;
+}
+
+export interface NPSMetrics {
+  npsScore: number;
+  totalResponses: number;
+  promoters: number;
+  passives: number;
+  detractors: number;
+  responseRate: number;
+  referralsSent: number;
+  referralsConverted: number;
+}

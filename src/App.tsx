@@ -21,6 +21,8 @@ import Settings from './pages/Settings';
 import Help from './pages/Help';
 import Reference from './pages/Reference';
 import Appointments from './pages/Appointments';
+import NPSSurvey from './pages/NPSSurvey';
+import Referrals from './pages/Referrals';
 
 function ProtectedRoute({ children, requireOrg = true }: { children: React.ReactNode; requireOrg?: boolean }) {
   const { session, orgId, initialized } = useAuthStore();
@@ -98,6 +100,11 @@ export default function App() {
         />
 
         <Route
+          path="/nps-survey"
+          element={<NPSSurvey />}
+        />
+
+        <Route
           element={
             <ProtectedRoute>
               <AppLayout />
@@ -115,6 +122,7 @@ export default function App() {
           <Route path="/evaluations/:id" element={<EvaluationWizard />} />
           <Route path="/photos" element={<Photos />} />
           <Route path="/analytics" element={<Analytics />} />
+          <Route path="/referrals" element={<Referrals />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/help" element={<Help />} />
           <Route path="/reference" element={<Reference />} />
