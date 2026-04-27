@@ -1,15 +1,27 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
-};
+// CORS: apenas origens permitidas
+const ALLOWED_ORIGINS = [
+  "https://spem.app",
+  "https://app.spem.app",
+  Deno.env.get("SITE_URL") || "http://localhost:5173",
+];
 
-function json(body: unknown, status = 200) {
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin") ?? "";
+  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return {
+    "Access-Control-Allow-Origin": allowed,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+  };
+}
+
+function json(body: unknown, status = 200, req?: Request) {
+  const cors = req ? getCorsHeaders(req) : {};
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 }
 
@@ -39,7 +51,7 @@ function buildMessage(templateName: string, params: string[]): string {
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: getCorsHeaders(req) });
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -68,7 +80,7 @@ Deno.serve(async (req: Request) => {
       payload: Record<string, unknown>;
     }> = await pendingRes.json();
 
-    if (!pending.length) return json({ sent: 0 });
+    if (!pending.length) return json({ sent: 0 }, 200, req);
 
     let sent = 0;
     let failed = 0;
@@ -108,11 +120,11 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    return json({ sent, failed });
+    return json({ sent, failed }, 200, req);
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
     console.error("[send-whatsapp]", msg);
-    return json({ error: msg }, 500);
+    return json({ error: msg }, 500, req);
   }
 });
 

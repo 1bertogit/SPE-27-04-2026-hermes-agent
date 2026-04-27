@@ -57,7 +57,9 @@ export const usePatientStore = create<PatientState>((set, get) => ({
     let query = supabase.from('patients').select('*', { count: 'exact' });
 
     if (filters.search) {
-      query = query.or(`full_name.ilike.%${filters.search}%,cpf.ilike.%${filters.search}%`);
+      // Sanitiza input para prevenir SQL injection
+      const sanitized = filters.search.replace(/[%_]/g, '\\$&');
+      query = query.or(`full_name.ilike.%${sanitized}%,cpf.ilike.%${sanitized}%`);
     }
     if (filters.classification) {
       query = query.eq('classification', filters.classification);

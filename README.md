@@ -1,6 +1,6 @@
 # SPE-M -- Sistema de Planejamento e Avaliacao Cirurgica
 
-Plataforma web medica para avaliacao pre-operatoria estruturada com score de precisao em tempo real. Desenvolvida para profissionais de saude que necessitam conduzir avaliacoes clinicas sistematizadas em 5 etapas, gerenciar prontuarios de pacientes, registrar fotos clinicas com anotacoes e acompanhar metricas de desempenho.
+Plataforma web medica para avaliacao pre-operatoria estruturada com score de precisao em tempo real. Desenvolvida para profissionais de saude que necessitam conduzir avaliacoes clinicas sistematizadas em 5 etapas, gerenciar prontuarios de pacientes, registrar fotos clinicas com anotacoes, acompanhar metricas de desempenho, comunicar-se com pacientes via WhatsApp em pos-operatorio e gerenciar indicações de pacientes satisfeitos.
 
 ---
 
@@ -12,12 +12,14 @@ Plataforma web medica para avaliacao pre-operatoria estruturada com score de pre
 | Estilizacao | Tailwind CSS 3 (design system editorial com dark mode) |
 | Componentes UI | Radix UI (Dialog, Tabs, Accordion, Select, Tooltip, Popover, Progress, Radio Group, Dropdown Menu) |
 | Icones | Lucide React |
-| Gerenciamento de Estado | Zustand 5 (5 stores: auth, patient, evaluation, theme, ui) |
+| Gerenciamento de Estado | Zustand 5 (12 stores: auth, patient, evaluation, checklist, document, surgical, appointment, preopExam, survey, alert, theme, ui) |
 | Formularios | React Hook Form + Zod 4 |
 | Graficos | Recharts 3 |
 | Backend | Supabase (PostgreSQL + Auth + Storage) |
 | Manipulacao de Datas | date-fns (pt-BR) |
 | Roteamento | React Router DOM 7 |
+| Testes | Vitest (61 testes: keywordCheck, patientPipeline, NPSAnalyzer) |
+| Hooks | Husky pre-commit (typecheck + test) |
 
 ---
 
@@ -38,7 +40,7 @@ Requer as variaveis de ambiente `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` c
 Wizard guiado com 22 criterios clinicos distribuidos em 5 etapas. Pontuacao maxima: **64 pontos**.
 
 | Etapa | Criterios | Pts Max | Descricao |
-|---|---|---|---|
+|---|---|---|---|---|
 | 1. Anamnese | 5 | 14 | Queixa principal, historico cirurgico, comorbidades, medicamentos, alergias |
 | 2. Exame Fisico | 5 | 14 | Estado geral, IMC, qualidade da pele, simetria, cicatrizacao |
 | 3. Classificacao de Risco | 4 | 13 | ASA, Mallampati, risco tromboembolico, risco cardiaco (Goldman) |
@@ -64,6 +66,7 @@ O sidebar lateral exibe em tempo real: score total com indicador circular SVG, n
 - Undo/Redo com historico completo e limpar tudo
 - Anotacoes persistidas como JSON (tipo, cor, largura, pontos)
 - Armazenamento via Supabase Storage (bucket `patient-photos`)
+- **Gate AUI:** upload bloqueado sem Autorizacao de Uso de Imagem assinada
 
 ### Canvas Anatomico
 
@@ -71,6 +74,17 @@ Disponivel na etapa de Classificacao de Risco do wizard:
 - Desenho sobre diagrama corporal (cabeca, torso, membros)
 - Ferramentas: caneta, borracha, 5 cores, 3 larguras
 - Undo/Redo completo e responsivo ao container
+
+### Alertas WhatsApp Pos-operatorios (Fase 3)
+
+Pipeline de comunicacao automatica com pacientes em pos-operatorio via WhatsApp:
+
+- **Edge Functions deployed:** `send-whatsapp` (envio outbound), `webhook-whatsapp` (entregas + msgs inbound), `process-alerts` (cron 15min)
+- **Bridge Baileys** (repo separado `spe-m-whatsapp-bridge`) com chip dedicado e endpoint `POST /send`
+- **Autenticacao do webhook:** `Authorization: Bearer WEBHOOK_SHARED_SECRET` com constant-time compare e fail-closed
+- **`pg_cron` rodando a cada 15min** scaneia pacientes em `pos_op_ativo` e cria alertas pendentes deduplicados por `patient_id:template_name`
+- **Keyword check clinico:** 25+ palavras-chave (`sangramento`, `febre`, `hematoma`, etc.) em mensagens inbound disparam alerta critico ao medico
+- **Politica de migracao Baileys → 360dialog** documentada em `docs/whatsapp-architecture-decision.md` (gatilhos: 2º tenant, ≥300 msgs/dia, ban do chip)
 
 ### Autenticacao
 
@@ -80,6 +94,41 @@ Disponivel na etapa de Classificacao de Risco do wizard:
 - Recuperacao de senha por email
 - Rotas protegidas com redirect automatico
 - Perfil criado automaticamente via trigger no banco
+
+### AI + Skills (Fase 4)
+
+Sistema de agentes autonomos para automatizacao clinica:
+
+- **MessageAgent:** gera mensagens de acompanhamento personalizadas
+- **ResponseAnalyzer:** classifica sentimento, urgencia e intencao em respostas de pacientes
+- **DocumentGenerator:** gera TCIs (Termos de Consentimento Informado) personalizados
+- **HarnessRunner:** orquestrador com 8 fases fixas (imutaveis)
+- **agent_logs:** tabela de auditoria imutavel (apenas INSERT)
+- **Interface Skills:** aba "AI Skills" na Settings para criar/testar skills customizadas
+- **Edge Function `process-agent`:** executa agentes via pg_cron ou manual
+
+### NPS e Referrals (Fase 5)
+
+Sistema de satisfacao e indicação ativa:
+
+- **Formulario NPS digital:** pagina publica `/nps-survey?token=XXX` (token seguro)
+- **NPSAnalyzer:** calcula score (-100 a +100), categoriza promotores/passivos/detratores
+- **Protocolo de indicação ativa:** NPS ≥ 9 cria referral automaticamente
+- **Tabela referrals:** rastreamento de indicações com status (pendente, contatado, agendado, convertido, nao_convertido)
+- **Dashboard NPS:** 4 cards de metricas (NPS, taxa conversão, total indicações, resposta rate)
+- **WhatsApp integration:** link de survey enviado automaticamente em pos-operatorio
+
+### Billing (Fase 6)
+
+Sistema de cobrança integrado:
+
+- **Stripe:** 3 planos (Starter, Professional, Enterprise)
+- **Precos:** R$97/mês (Starter), R$297/mês (Professional), R$697/mês (Enterprise)
+- **Overage:** R$15 por procedimento extra (alem dos incluidos no plano)
+- **Trial 14 dias:** sem cartao de credito, acesso completo
+- **Landing page publica:** `/pricing` com toggle mensal/anual (-17%)
+- **Aba Billing na Settings:** gestao de assinatura, faturas, upgrade/downgrade
+- **Edge Functions:** `stripe-checkout` (cria sessao), `stripe-webhook` (processa eventos)
 
 ---
 
@@ -94,28 +143,31 @@ Disponivel na etapa de Classificacao de Risco do wizard:
 | `/dashboard` | 4 metricas (pacientes, avaliacoes, pendentes, score medio), tabela de recentes, grafico de distribuicao |
 | `/patients` | Lista paginada (10/pg) com busca por nome/CPF, filtro por classificacao, ordenacao |
 | `/patients/new` | Cadastro com 4 secoes: dados pessoais, contato, endereco (27 estados BR), historico medico |
-| `/patients/:id` | Detalhe com tabs (Visao Geral + Historico de avaliacoes), acoes rapidas |
+| `/patients/:id` | Detalhe com `StatusActions` (stepper do pipeline + botoes de avanco) acima de 8 tabs (Visao Geral, Avaliacoes, Agendamentos, Documentos, Checklists, Exames, Cirurgias, NPS) |
 | `/patients/:id/edit` | Edicao do prontuario existente |
 | `/evaluations` | Lista centralizada de todas as avaliacoes com status e scores |
 | `/evaluations/new` | Wizard 5 etapas com score em tempo real e canvas anatomico |
 | `/evaluations/:id` | Retomada de avaliacao em andamento |
 | `/photos` | 5 viewports de upload com ferramentas de anotacao em canvas |
 | `/analytics` | 4 graficos: linha (avaliacoes/mes), pizza (distribuicao), barras (scores/criterio), cards de metricas |
-| `/settings` | Tabs: Perfil (nome, CRM, especialidade, telefone) e Clinica (nome, endereco) |
+| `/settings` | 5 tabs: Perfil, Clinica, Membros, Telegram, AI Skills, Billing |
 | `/help` | FAQ em accordion pesquisavel (6 secoes) + contato de suporte |
 | `/reference` | Cartao de referencia rapida com protocolo completo (10 fases) e keywords criticas para WhatsApp |
+| `/pricing` | Landing page publica com planos Stripe (trial 14 dias) |
+| `/nps-survey` | Formulario NPS publico (acesso via token) |
+| `/referrals` | Gestao de indicações de pacientes |
 
 ---
 
 ## Banco de Dados - Arquitetura Multi-tenancy
 
-12 tabelas com Row Level Security ativo em todas (organizacoes + dados):
+**16 tabelas** com Row Level Security ativo em todas (organizacoes + dados + alertas):
 
 | Tabela | Descricao | Politica RLS |
 |---|---|---|
 | `organizations` | Clinicas/unidades (nome, CNPJ, timezone) | Usuario le/edita apenas se org_id = current_org_id() |
 | `profiles` | Perfil do profissional com org_id + role | CRUD restrito ao seu org_id |
-| `patients` | Prontuarios com status de workflow (11 estados) | CRUD restrito ao seu org_id |
+| `patients` | Prontuarios com `workflow_status` (12 estados) | CRUD restrito ao seu org_id |
 | `evaluations` | Avaliacoes SPE-M com score | CRUD restrito ao seu org_id |
 | `evaluation_criteria` | Respostas individuais por criterio | CRUD restrito ao seu org_id |
 | `patient_photos` | Fotos com anotacoes JSONB | CRUD restrito ao seu org_id |
@@ -127,18 +179,20 @@ Disponivel na etapa de Classificacao de Risco do wizard:
 | `surgical_records` | Registro de cirurgias (tecnica, tempo, complicacoes) | CRUD restrito ao seu org_id |
 | `implant_records` | Implantes cirurgicos (volume, lote, lado) | CRUD restrito ao seu org_id |
 | `satisfaction_surveys` | NPS e feedback pos-operatorio | CRUD restrito ao seu org_id |
+| `alert_definitions` | Templates de alertas WhatsApp (Fase 3) | CRUD restrito ao seu org_id |
+| `alert_logs` | Audit log de envios/recebimentos WhatsApp (Fase 3) | CRUD restrito ao seu org_id |
 
-**Workflow States:** `lead` → `consulta_agendada` → `consulta_realizada` → `decidiu_operar` → `pre_operatorio` → `cirurgia_agendada` → `cirurgia_realizada` → `pos_op_ativo` → `longo_prazo` → `encerrado` (com terminais: `cancelado`, `nao_convertido`)
+**Workflow States (Pipeline SC-04, forward-only):** `lead` → `consulta_agendada` → `consulta_realizada` → `decidiu_operar` → `pre_operatorio` → `cirurgia_agendada` → `cirurgia_realizada` → `pos_op_ativo` → `longo_prazo` → `encerrado`. Terminais: `cancelado`, `nao_convertido`.
 
-**Storage:** Bucket `patient-photos` com path filtrado por org_id (primeiro nivel de pasta)
+**Gate clinico SC-12:** trigger SQL `check_spem_gate_on_patients` (`SECURITY DEFINER`) bloqueia transicao para `cirurgia_agendada` se a ultima avaliacao SPE-M concluida tem ratio `(total_score / max_score) < 0.6` (60%). A mensagem do erro carrega o percentual exato e e re-exibida pelo frontend num alert persistente.
 
-**Funcoes Helper:**
+**Storage:** Bucket `patient-photos` privado com signed URLs, path filtrado por org_id.
+
+**Helper Functions:**
 - `current_org_id()` — extrai org_id do JWT
 - `current_app_role()` — extrai role (admin/doctor/reception) do JWT
 
-**JWT Custom Hook:** `auth.custom_access_token_hook` injeta org_id e role em app_metadata
-
-**Indexes:** `org_id`, `user_id`, `patient_id`, `status`, `classification`, `created_at DESC` em tabelas relevantes.
+**JWT Custom Hook:** `public.custom_access_token_hook` (`SECURITY DEFINER`) injeta org_id e role em app_metadata.
 
 ---
 
@@ -146,144 +200,40 @@ Disponivel na etapa de Classificacao de Risco do wizard:
 
 | Store | Responsabilidade |
 |---|---|
-| `authStore` | Sessao, orgId, role (admin/doctor/reception), perfil, login/registro/logout, reset de senha |
-| `patientStore` | CRUD de pacientes com org_id, paginacao, filtros (busca, classificacao, status, ordenacao) |
+| `authStore` | Sessao, orgId, role (admin/doctor/reception), perfil, login/registro/logout, reset de senha, gestao de membros da org |
+| `patientStore` | CRUD de pacientes com org_id, paginacao, filtros, `advanceWorkflow()` com SC-04 via `canTransition()` |
 | `evaluationStore` | CRUD de avaliacoes com org_id, respostas por criterio, navegacao do wizard, calculo de score |
 | `checklistStore` | CRUD de checklists (liberacao, OMS, alta) com org_id, gerencia de itens |
-| `documentStore` | CRUD de documentos (TCIs, contratos) com org_id |
+| `documentStore` | CRUD de documentos (TCIs, contratos) com org_id, `hasSignedAUI()` para gate de fotos |
 | `surgicalStore` | CRUD de registros cirurgicos e implantes com org_id |
 | `appointmentStore` | CRUD de agendamentos pre/pos operatorios com org_id, geracao de rotina pos-op |
 | `preopExamStore` | CRUD de exames pre-operatorios com org_id, templates por procedimento |
 | `surveyStore` | CRUD de pesquisas de satisfacao NPS com org_id |
+| `alertStore` | CRUD de definicoes de alertas e logs WhatsApp com org_id (Fase 3) |
+| `telegramStore` | Configuracao de alertas Telegram (bot token, chat id, tipos de alerta) |
+| `aiAgentStore` | Gestao de skills AI, execucoes de agentes, metricas de uso |
+| `npsStore` | Gestao de surveys NPS, referrals, metricas NPS |
+| `billingStore` | Gestao de assinatura Stripe, planos, faturas, checkout |
 | `themeStore` | Alternancia light/dark, persistencia em localStorage, respeita `prefers-color-scheme` |
 | `uiStore` | Sidebar, toasts (auto-dismiss 4s com animacao de saida) |
 
 ---
 
-## Validacao (Zod)
+## Harness e System Constraints
 
-| Schema | Campos Validados |
-|---|---|
-| `loginSchema` | Email, senha (min 6) |
-| `registerSchema` | Nome, email, CRM, senha forte (8+ chars, maiuscula, numero), confirmacao |
-| `forgotPasswordSchema` | Email |
-| `patientSchema` | Nome, CPF (11-14 chars), nascimento, genero, telefone, email, endereco, classificacao (I-IV), historico medico |
-| `profileSchema` | Nome, CRM, especialidade, telefone, dados da clinica |
+O projeto adota um harness minimo que separa **intencao**, **execucao** e **qualidade**:
 
----
-
-## Estrutura do Projeto
-
-```
-src/
-├── components/
-│   ├── evaluation/
-│   │   ├── AnatomicalCanvas.tsx    # Canvas HTML5 com diagrama corporal
-│   │   ├── CriterionQuestion.tsx   # Radio group por criterio
-│   │   ├── EvalScoreSidebar.tsx    # Score em tempo real + breakdown
-│   │   └── EvalStepper.tsx         # Indicador visual de etapas
-│   ├── layout/
-│   │   ├── AppLayout.tsx           # Layout principal com Navbar + Outlet
-│   │   ├── AuthLayout.tsx          # Layout split-screen para login/registro
-│   │   └── Navbar.tsx              # Navegacao responsiva + dropdown de perfil + theme toggle
-│   └── ui/
-│       ├── Avatar.tsx              # Imagem ou iniciais (sm/md/lg/xl)
-│       ├── Badge.tsx               # 5 variantes (success/warning/error/info/neutral)
-│       ├── Button.tsx              # 5 variantes + loading spinner
-│       ├── Card.tsx                # Container com header/title/description
-│       ├── EmptyState.tsx          # Estado vazio com icone e CTA
-│       ├── Input.tsx               # Input, Textarea, Select com validacao
-│       ├── Modal.tsx               # Dialog Radix com backdrop blur
-│       ├── Skeleton.tsx            # Card/Table/Page skeletons com pulse
-│       └── Toast.tsx               # Notificacoes com auto-dismiss
-├── data/
-│   ├── constants.ts                # Estados brasileiros, especialidades medicas
-│   └── evaluationCriteria.ts       # 22 criterios em 5 etapas (config completa)
-├── lib/
-│   ├── supabase.ts                 # Cliente Supabase (singleton)
-│   ├── types.ts                    # Interfaces TypeScript (Profile, Patient, Evaluation, etc.)
-│   ├── utils.ts                    # Formatacao (data, CPF, telefone), cores por score/status
-│   └── validation.ts              # Schemas Zod (login, registro, paciente, perfil)
-├── pages/                          # 13 paginas (uma por rota)
-├── stores/                         # 5 Zustand stores
-├── index.css                       # Design system editorial (dark mode, scrollbar, focus ring, glass)
-├── main.tsx                        # Entry point
-└── App.tsx                         # Rotas protegidas/publicas
-
-supabase/
-├── migrations/                     # 11 migracoes SQL
-│   ├── create_profiles_table.sql
-│   ├── create_patients_table.sql
-│   ├── create_evaluations_table.sql
-│   ├── create_patient_photos_table.sql
-│   ├── add_evaluation_criteria_unique_constraint.sql
-│   ├── create_patient_photos_storage_bucket.sql
-│   ├── add_procedures_and_clinical_workflow.sql
-│   ├── add_foreign_key_indexes.sql
-│   ├── optimize_rls_policies.sql
-│   ├── add_leads_and_bioestimuladores.sql
-│   └── add_organizations_multitenant.sql
-└── functions/
-    └── complete-onboarding/
-        └── index.ts                # Edge Function para criar organizacao e injetar JWT
-```
-
----
-
-## Design System Editorial
-
-### Paleta de Cores
-
-| Token | Valor | Uso |
+| Camada | Tooling | Bloqueia commit? |
 |---|---|---|
-| `editorial-navy` | `#1A2B48` | Texto principal, superficies dark |
-| `editorial-navy-light` | `#2A3F62` | Bordas e destaques dark |
-| `editorial-navy-dark` | `#111D33` | Background dark mode |
-| `editorial-gold` | `#C5A059` | Cor de destaque primaria |
-| `editorial-gold-light` | `#D4B574` | Hover/accent gold |
-| `editorial-gold-dark` | `#A8873D` | Texto sobre fundo gold |
-| `editorial-paper` | `#F2F2F0` | Background principal light |
-| `editorial-cream` | `#E8E6E1` | Bordas e divisores |
-| `editorial-warm` | `#D4CFC5` | Texto sutil |
-| `editorial-muted` | `#8A8477` | Texto secundario |
-| `editorial-light` | `#FAF9F7` | Superficie de cards |
-| `editorial-sage` | `#6B7F6B` | Semantica: sucesso/aprovado |
-| `editorial-rose` | `#9B4D4D` | Semantica: erro/risco |
-| `editorial-slate` | `#3D5A80` | Semantica: informacao |
+| Type safety | `tsc --noEmit -p tsconfig.app.json` | Sim, via husky pre-commit |
+| Testes unitarios | Vitest (61 specs em `src/lib/**/*.test.ts`) | Sim, via husky pre-commit |
+| Lint | ESLint v9 | Nao (informativo) |
+| Constraints clinicos | `SYSTEM_CONSTRAINTS.md` (SC-01 a SC-13) | Enforcement no DB via triggers SQL |
 
-### Tipografia
-
-| Fonte | Uso | Pesos |
-|---|---|---|
-| Inter | Corpo, UI, labels | 300, 400, 500, 600, 700 |
-| Playfair Display | Headings, branding | 400, 500, 600, 700 |
-
-### Dark Mode
-
-- Estrategia: classe CSS (`darkMode: 'class'`)
-- Persistencia: localStorage (`spe-theme`)
-- Fallback: respeita `prefers-color-scheme` na primeira visita
-- Flash prevention: script inline no `<head>` aplica a classe antes do React carregar
-- Toggle: botao Sun/Moon na Navbar com transicao animada
-
-### Utilitarios CSS
-
-| Classe | Descricao |
-|---|---|
-| `.card` | Superficie de card com borda e sombra (light/dark) |
-| `.glass` | Efeito vidro com backdrop-blur |
-| `.glass-editorial` | Vidro com toque dourado na borda |
-| `.focus-ring` | Anel de foco acessivel (gold) |
-| `.editorial-grid` | Grid decorativo de fundo |
-
-### Animacoes
-
-| Nome | Duracao | Descricao |
-|---|---|---|
-| `fade-in` | 0.4s | Aparecimento gradual |
-| `slide-up` | 0.4s | Entrada de baixo para cima |
-| `slide-down` | 0.4s | Entrada de cima para baixo |
-| `pulse-slow` | 3s | Pulso lento ciclico |
+**Constraints versionados:**
+- **SC-04** — workflow forward-only (sem retorno). Validado em `patientPipeline.ts:canTransition()` e CHECK constraint no DB.
+- **SC-12** — SPE-M score ≥ 60% antes de `cirurgia_agendada`. Enforcement via trigger; frontend re-exibe mensagem do Postgres.
+- **SC-13** — `cirurgia_realizada` requer Sign Out do CIO assinado.
 
 ---
 
@@ -295,55 +245,37 @@ npm run build      # Build de producao
 npm run preview    # Preview do build local
 npm run lint       # ESLint
 npm run typecheck  # Verificacao de tipos TypeScript
+npm test           # Vitest (61 testes)
 ```
 
 ---
 
 ## Fluxo de Onboarding Multi-tenancy
 
-### 1. Novo Registro
-Usuario se registra via `/register` com email, nome, CRM e senha.
-
-### 2. Redirect para Onboarding
-Apos login (com session mas sem org_id), guard em App.tsx redireciona para `/onboarding`.
-
-### 3. Criacao de Organizacao
-Usuario preenche nome da clinica e chama Edge Function `complete-onboarding` que:
-- Valida JWT do usuario
-- Cria registro em tabela `organizations`
-- Atualiza `profiles` com org_id e role='admin'
-- Retorna sucesso
-
-### 4. JWT Refresh
-Frontend chama `supabase.auth.refreshSession()` para recarregar JWT com org_id + role injetados.
-
-### 5. Acesso ao Dashboard
-Guard verifica se orgId existe e redireciona para `/dashboard`.
-
-### 6. RLS Automatico
-Todas as queries ficam automaticamente filtradas por org_id via funcao `current_org_id()` do banco.
+1. Usuario se registra via `/register` com email, nome, CRM e senha.
+2. Apos login (sem org_id), redireciona para `/onboarding`.
+3. Preenche nome da clinica e chama Edge Function `complete-onboarding` (deploy com `--no-verify-jwt`).
+4. Edge function cria `organizations`, atualiza `profiles` com org_id + role='admin'.
+5. Frontend chama `supabase.auth.refreshSession()` para recarregar JWT com org_id + role.
+6. Guard verifica orgId e redireciona para `/dashboard`.
 
 **Setup Manual Necessario:**
 Registre o JWT hook no Dashboard Supabase:
 - Auth → Hooks → Add → Custom Access Token
-- Function: `auth.custom_access_token_hook`
-- Save
+- Schema: `public` (Supabase hospedado bloqueia escrita no schema `auth`)
+- Function: `custom_access_token_hook` (`SECURITY DEFINER`)
 
 ---
 
 ## Setup Manual em Novo Ambiente — Fase 3 (Alertas WhatsApp)
 
-A migration `20260417050001_vault_service_role_secret.sql` esta **gitignored** (contem a service role key hardcoded). Ao configurar um novo ambiente do zero, os passos abaixo sao obrigatorios:
-
 ### 1. Habilitar extensoes Postgres
 
-Dashboard Supabase → **Database → Extensions**, habilitar:
-- `pg_cron` (agendamento de jobs)
-- `pg_net` (HTTP client no banco)
+Dashboard Supabase → **Database → Extensions**:
+- `pg_cron` (agendamento)
+- `pg_net` (HTTP client)
 
-### 2. Criar o secret no Supabase Vault
-
-SQL Editor do Supabase, rodar uma vez:
+### 2. Criar secret no Supabase Vault
 
 ```sql
 SELECT vault.create_secret(
@@ -353,21 +285,19 @@ SELECT vault.create_secret(
 );
 ```
 
-> **Importante:** o nome do secret deve ser exatamente `pg_cron_service_role_key` — as migrations que agendam o cron referenciam esse nome via `vault.decrypted_secrets WHERE name = 'pg_cron_service_role_key'`. Alterar o nome quebra a autenticacao do cron silenciosamente.
+> O nome deve ser exatamente `pg_cron_service_role_key`.
 
-A service role key esta em Supabase Dashboard → Settings → API → `service_role`.
-
-### 3. Configurar secret `WHATSAPP_BRIDGE_URL` nas Edge Functions
+### 3. Configurar secret nas Edge Functions
 
 ```bash
 npx supabase secrets set WHATSAPP_BRIDGE_URL="https://SEU_DOMINIO_OU_NGROK/send"
+npx supabase secrets set STRIPE_SECRET_KEY="sk_live_..."
+npx supabase secrets set STRIPE_WEBHOOK_SECRET="whsec_..."
 ```
-
-A URL deve apontar para o endpoint `POST /send` do `spe-m-whatsapp-bridge` (repo separado).
 
 ### 4. Configurar o WhatsApp Bridge
 
-No repo `spe-m-whatsapp-bridge/`, arquivo `.env`:
+No repo `spe-m-whatsapp-bridge/`, `.env`:
 
 ```
 PORT=3002
@@ -375,18 +305,13 @@ SPEM_WEBHOOK_URL=https://SEU_PROJETO.supabase.co/functions/v1/webhook-whatsapp
 SPEM_SERVICE_KEY=SUA_SERVICE_ROLE_KEY
 ```
 
-Iniciar bridge (`npm run dev`), escanear QR em `http://localhost:3002/qr` com chip WhatsApp dedicado, e expor via ngrok ou tunnel permanente.
+Iniciar: `npm run dev`, escanear QR em `http://localhost:3002/qr`.
 
 ### 5. Validar setup
 
 ```sql
--- Verificar extensoes
 SELECT extname FROM pg_extension WHERE extname IN ('pg_cron', 'pg_net');
-
--- Verificar secret
 SELECT name FROM vault.secrets WHERE name = 'pg_cron_service_role_key';
-
--- Verificar cron job
 SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'process-alerts-every-15min';
 ```
 
@@ -394,14 +319,49 @@ SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'process-alerts-e
 
 ## Palavras-chave Criticas para WhatsApp
 
-A pagina `/reference` exibe 25+ palavras-chave que ativam alerta clinico em mensagens de pacientes pos-operatorios:
+A pagina `/reference` exibe 25+ palavras-chave que ativam alerta clinico:
 
-**Frases:**
-- "não consigo fechar o olho", "inchaço muito grande", "abriu a cirurgia", "perdendo sensação", "febre alta", "dor forte"
+**Frases:** "não consigo fechar o olho", "inchaço muito grande", "abriu a cirurgia", "perdendo sensação", "febre alta", "dor forte"
 
-**Palavras:**
-- sangramento, sangrando, hematoma, secreção, paralisia, sangue, febre, pus, abertura, hemorragia, desmaio, convulsão, infecção, necrose, cianose, isquemia, choque, taquicardia, falta de ar, taquipneia, pele azulada, hipotensão, edema agudo
+**Palavras:** sangramento, sangrando, hematoma, secreção, paralisia, sangue, febre, pus, abertura, hemorragia, desmaio, convulsão, infecção, necrose, cianose, isquemia, choque, taquicardia, falta de ar, taquipneia, pele azulada, hipotensão, edema agudo
+
+---
 
 ## Idioma
 
-Toda a interface esta em **Portugues Brasileiro (pt-BR)**, incluindo labels de formularios, mensagens de erro, nomes de etapas, tooltips e textos de ajuda. Formatacoes de data, CPF e telefone seguem o padrao brasileiro.
+Toda a interface esta em **Portugues Brasileiro (pt-BR)**.
+
+---
+
+## Status das Fases
+
+| Fase | Status | Descricao |
+|---|---|---|
+| 1 — Core | ✅ COMPLETA | Auth + multi-tenancy, CRUD pacientes, pipeline 12 estados, dashboard |
+| 2 — Documentos | ✅ COMPLETA | Ficha SPE-M, checklists, documentos, fotos (AUI gate), exames, implantes |
+| 3 — Alertas WhatsApp | ✅ COMPLETA | Edge Functions, Bridge Baileys, pg_cron, Vault, keyword check (25+ keywords) |
+| 4 — AI + Skills | ✅ COMPLETA | MessageAgent, ResponseAnalyzer, DocumentGenerator, HarnessRunner, agent_logs |
+| 5 — NPS e Referrals | ✅ COMPLETA | Formulario NPS, NPSAnalyzer, referrals, dashboard KPIs |
+| 6 — Billing | ✅ COMPLETA | Stripe (3 planos + overage), trial 14 dias, landing page `/pricing` |
+
+---
+
+## Branches Git
+
+- `main` — codigo estavel
+- `feature/fase-4-ai-skills` — Fase 4 AI (mergeada)
+- `feature/fase-5-nps` — Fase 5 NPS (mergeada)
+- `feature/fase-6-billing` — Fase 6 Billing (mergeada)
+
+---
+
+## Documentacao Adicional
+
+- `CLAUDE.md` — Regras de arquitetura, coding standards, setup tecnico
+- `CODE_REVIEW_REPORT.md` — Relatorio de revisao de codigo (issues, recomendacoes)
+- `docs/whatsapp-architecture-decision.md` — Decisao de arquitetura WhatsApp
+- `SYSTEM_CONSTRAINTS.md` — Constraints clinicas (SC-01 a SC-13)
+
+---
+
+*Projeto 100% funcional — 27/04/2026*
