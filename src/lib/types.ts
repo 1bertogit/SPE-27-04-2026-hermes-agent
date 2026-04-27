@@ -422,3 +422,53 @@ export interface AgentExecution {
   locked_at: string | null;
   created_at: string;
 }
+
+// Billing
+export interface SubscriptionPlan {
+  id: string;
+  stripe_price_id: string;
+  name: string;
+  description: string | null;
+  tier: 'starter' | 'professional' | 'enterprise';
+  monthly_price: number;
+  yearly_price: number;
+  included_procedures: number;
+  overage_price_per_procedure: number;
+  features: string[];
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface OrgSubscription {
+  id: string;
+  org_id: string;
+  stripe_customer_id: string;
+  stripe_subscription_id: string | null;
+  plan_id: string;
+  status: 'trialing' | 'active' | 'past_due' | 'canceled' | 'incomplete';
+  current_period_start: string | null;
+  current_period_end: string | null;
+  trial_start: string | null;
+  trial_end: string | null;
+  cancel_at_period_end: boolean;
+  procedure_count_current_period: number;
+  overage_charges_current_period: number;
+  created_at: string;
+  updated_at: string;
+  plan?: SubscriptionPlan;
+}
+
+export interface Invoice {
+  id: string;
+  org_id: string;
+  stripe_invoice_id: string | null;
+  amount_due: number;
+  amount_paid: number;
+  status: 'draft' | 'open' | 'paid' | 'uncollectible' | 'void';
+  invoice_type: 'subscription' | 'overage';
+  period_start: string | null;
+  period_end: string | null;
+  description: string | null;
+  paid_at: string | null;
+  created_at: string;
+}

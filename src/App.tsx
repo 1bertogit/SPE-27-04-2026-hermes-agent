@@ -23,6 +23,7 @@ import Reference from './pages/Reference';
 import Appointments from './pages/Appointments';
 import NPSSurvey from './pages/NPSSurvey';
 import Referrals from './pages/Referrals';
+import Pricing from './pages/Pricing';
 
 function ProtectedRoute({ children, requireOrg = true }: { children: React.ReactNode; requireOrg?: boolean }) {
   const { session, orgId, initialized } = useAuthStore();
@@ -102,6 +103,11 @@ export default function App() {
         <Route
           path="/nps-survey"
           element={<NPSSurvey />}
+        />
+
+        <Route
+          path="/pricing"
+          element={<Pricing />}
         />
 
         <Route
