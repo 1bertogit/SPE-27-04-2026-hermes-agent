@@ -22,6 +22,7 @@
 - ✅ `SkillLoader` no frontend resolve hierarquia tenant > sistema, monta bundle para `MessageAgent` com default + protocolo operacional + procedimento + tipo de mensagem, e passa contexto para `process-agent`
 - ✅ HarnessRunner parcial implementado em `process-agent`: 8 fases fixas com `agent_logs`, dry-run padrão sem modelo, execução opcional com `execute_agent=true`, deploy remoto ativo e smoke test remoto concluído
 - ✅ RLS de `agent_executions` permite `INSERT` seguro por `org_id` com `patient_id`/`parent_execution_id` da mesma org (migrations `20260428000005` e `20260428000006`)
+- ✅ ResponseAnalyzer determinístico implementado: classifica sentimento/urgência/intenção, detecta keywords clínicas, aplica `clinical_guardrail`, custo zero e logs `model_provider=deterministic`
 - ⚠️ Runtime ainda depende de secrets externos não alterados nesta sessão (`ANTHROPIC_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`)
 - ⚠️ Repositório Git de trabalho: `SPE-27-04-2026-hermes-agent-git`, branch `feature/fase-6-billing`
 
@@ -449,7 +450,7 @@ Ao final de cada sessão, antes de qualquer commit:
 
 ✅ 10 protocolos clínicos convertidos de `.docx` para `skills/*.skill.md` (Fase 4 prep, 27/04/2026)
 ⚠️ MessageAgent (geração de mensagens por AI) — wire parcial com `SkillLoader` + `process-agent`; depende de `ANTHROPIC_API_KEY` para teste real
-❌ ResponseAnalyzer (classificação de respostas)
+✅ ResponseAnalyzer (classificação de respostas) — determinístico v1 com guardrail clínico e smoke test remoto
 ❌ DocumentGenerator (geração de TCI por AI)
 ⚠️ HarnessRunner com 8 fases fixas — implementado em dry-run + logs; execução real de agente alvo depende de `execute_agent=true` e secret Anthropic
 ✅ agent_logs imutáveis — migration append-only + views + wire inicial em `process-agent`

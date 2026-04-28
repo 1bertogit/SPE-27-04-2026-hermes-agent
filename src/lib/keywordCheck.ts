@@ -27,6 +27,9 @@ const CRITICAL_PHRASES: readonly [string, string][] = [
   ['perdendo sensacao', 'perdendo sensação'],
   ['febre alta', 'febre alta'],
   ['dor forte', 'dor forte'],
+  ['falta de ar', 'falta de ar'],
+  ['pele azulada', 'pele azulada'],
+  ['edema agudo', 'edema agudo'],
 ];
 
 const CRITICAL_WORDS: readonly [string, string][] = [
@@ -48,6 +51,8 @@ const CRITICAL_WORDS: readonly [string, string][] = [
   ['isquemia', 'isquemia'],
   ['choque', 'choque'],
   ['taquicardia', 'taquicardia'],
+  ['taquipneia', 'taquipneia'],
+  ['hipotensao', 'hipotensão'],
 ];
 
 function escapeRe(s: string): string {
@@ -81,7 +86,7 @@ export function getCriticalKeywords(): readonly string[] {
   out.add('falta de ar');
   out.add('taquipneia');
   out.add('pele azulada');
-  out.add('hipotensao');
+  out.add('hipotensão');
   out.add('edema agudo');
   return Object.freeze([...out].sort((a, b) => a.localeCompare(b, 'pt')));
 }

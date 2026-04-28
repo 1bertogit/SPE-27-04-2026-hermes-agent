@@ -44,6 +44,12 @@ describe('checkCriticalKeywords — phrases', () => {
     expect(r.critical).toBe(true);
     expect(r.keyword).toBe('inchaço muito grande');
   });
+
+  it('detects respiratory warning phrases', () => {
+    const r = checkCriticalKeywords('Estou com falta de ar');
+    expect(r.critical).toBe(true);
+    expect(r.keyword).toBe('falta de ar');
+  });
 });
 
 describe('checkCriticalKeywords — single words', () => {
@@ -69,6 +75,12 @@ describe('checkCriticalKeywords — single words', () => {
     const r = checkCriticalKeywords('Tem secreção amarelada');
     expect(r.critical).toBe(true);
     expect(r.keyword).toBe('secreção');
+  });
+
+  it('detects "hipotensão"', () => {
+    const r = checkCriticalKeywords('Estou com hipotensão desde ontem');
+    expect(r.critical).toBe(true);
+    expect(r.keyword).toBe('hipotensão');
   });
 
   it('does not false-positive on substring match', () => {
@@ -103,5 +115,6 @@ describe('getCriticalKeywords', () => {
     expect(keywords).toContain('sangramento');
     expect(keywords).toContain('febre alta');
     expect(keywords).toContain('edema agudo');
+    expect(keywords).toContain('hipotensão');
   });
 });

@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.4';
+import { analyzePatientResponse } from '../_shared/response-analyzer.ts';
 
 type AgentType = 'HarnessRunner' | 'MessageAgent' | 'ResponseAnalyzer' | 'DocumentGenerator';
 type AgentLogStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped' | 'blocked';
@@ -144,6 +145,8 @@ Deno.serve(async (req) => {
     let errorMessage: string | null = null;
     const startTime = Date.now();
     const model = skillConfig?.model_config?.model || 'claude-sonnet-4-6';
+    const runtimeProvider = getRuntimeProvider(agentType);
+    const runtimeModel = getRuntimeModelName(agentType, model);
 
     if (agentType === 'HarnessRunner') {
       const result = await processHarnessRunner(
@@ -178,8 +181,8 @@ Deno.serve(async (req) => {
         parent_execution_id: execution.parent_execution_id ?? null,
         execution_chain: execution.execution_chain ?? null,
       },
-      modelProvider: 'anthropic',
-      modelName: model,
+      modelProvider: runtimeProvider,
+      modelName: runtimeModel,
     });
 
     await writeAgentLog(supabaseAdmin, {
@@ -193,8 +196,8 @@ Deno.serve(async (req) => {
         skill_slug: skillConfig?.slug ?? null,
         skill_source: resolveSkillSource(skillConfig),
       },
-      modelProvider: 'anthropic',
-      modelName: model,
+      modelProvider: runtimeProvider,
+      modelName: runtimeModel,
     });
 
     try {
@@ -205,7 +208,7 @@ Deno.serve(async (req) => {
           break;
         
         case 'ResponseAnalyzer':
-          output = await processResponseAnalyzer(skillConfig, input, model);
+          output = await processResponseAnalyzer(input);
           break;
         
         case 'DocumentGenerator':
@@ -223,7 +226,7 @@ Deno.serve(async (req) => {
     // Calcular tokens (estimativa simplificada)
     const inputTokens = JSON.stringify(input).length / 4;
     const outputTokens = JSON.stringify(output).length / 4;
-    const costUsd = (inputTokens + outputTokens) * 0.000003; // ~$3/million tokens
+    const costUsd = getRuntimeCostUsd(agentType, inputTokens + outputTokens);
 
     await writeAgentLog(supabaseAdmin, {
       execution,
@@ -234,8 +237,8 @@ Deno.serve(async (req) => {
       skillConfig,
       outputPayload: output,
       errorMessage,
-      modelProvider: 'anthropic',
-      modelName: model,
+      modelProvider: runtimeProvider,
+      modelName: runtimeModel,
     });
 
     await writeAgentLog(supabaseAdmin, {
@@ -247,8 +250,8 @@ Deno.serve(async (req) => {
       skillConfig,
       outputPayload: output,
       errorMessage,
-      modelProvider: 'anthropic',
-      modelName: model,
+      modelProvider: runtimeProvider,
+      modelName: runtimeModel,
       inputTokens: Math.round(inputTokens),
       outputTokens: Math.round(outputTokens),
       costUsd,
@@ -279,8 +282,8 @@ Deno.serve(async (req) => {
         skillConfig,
         outputPayload: output,
         errorMessage: updateError.message,
-        modelProvider: 'anthropic',
-        modelName: model,
+        modelProvider: runtimeProvider,
+        modelName: runtimeModel,
       });
       throw new Error(updateError.message);
     }
@@ -323,6 +326,8 @@ async function processHarnessRunner(
     agentOutput: null,
     phaseRecords: [],
   };
+  const runtimeProvider = getRuntimeProvider(context.targetAgentType);
+  const runtimeModel = getRuntimeModelName(context.targetAgentType, model);
 
   let status: 'completed' | 'failed' = 'completed';
   let errorMessage: string | null = null;
@@ -338,8 +343,8 @@ async function processHarnessRunner(
       dry_run: context.dryRun,
       dispatch_mode: context.dispatchMode,
     },
-    modelProvider: context.dryRun ? null : 'anthropic',
-    modelName: context.dryRun ? null : model,
+    modelProvider: context.dryRun ? null : runtimeProvider,
+    modelName: context.dryRun ? null : runtimeModel,
   });
 
   try {
@@ -456,8 +461,8 @@ async function processHarnessRunner(
         status: 'running',
         harnessPhase: 6,
         skillConfig,
-        modelProvider: 'anthropic',
-        modelName: model,
+        modelProvider: runtimeProvider,
+        modelName: runtimeModel,
       });
 
       try {
@@ -471,8 +476,8 @@ async function processHarnessRunner(
           harnessPhase: 6,
           skillConfig,
           outputPayload: context.agentOutput,
-          modelProvider: 'anthropic',
-          modelName: model,
+          modelProvider: runtimeProvider,
+          modelName: runtimeModel,
         });
 
         return { status: 'completed', output: context.agentOutput };
@@ -486,8 +491,8 @@ async function processHarnessRunner(
           harnessPhase: 6,
           skillConfig,
           errorMessage: message,
-          modelProvider: 'anthropic',
-          modelName: model,
+          modelProvider: runtimeProvider,
+          modelName: runtimeModel,
         });
         throw error;
       }
@@ -533,7 +538,7 @@ async function processHarnessRunner(
 
   const inputTokens = Math.round(JSON.stringify(input).length / 4);
   const outputTokens = Math.round(JSON.stringify(output).length / 4);
-  const costUsd = context.dryRun ? 0 : (inputTokens + outputTokens) * 0.000003;
+  const costUsd = context.dryRun ? 0 : getRuntimeCostUsd(context.targetAgentType, inputTokens + outputTokens);
 
   await writeAgentLog(supabaseAdmin, {
     execution,
@@ -544,8 +549,8 @@ async function processHarnessRunner(
     skillConfig,
     outputPayload: output,
     errorMessage,
-    modelProvider: context.dryRun ? null : 'anthropic',
-    modelName: context.dryRun ? null : model,
+    modelProvider: context.dryRun ? null : runtimeProvider,
+    modelName: context.dryRun ? null : runtimeModel,
     inputTokens,
     outputTokens,
     costUsd,
@@ -732,6 +737,23 @@ function resolveHarnessTargetAgentType(value: unknown): Exclude<AgentType, 'Harn
   return 'MessageAgent';
 }
 
+function getRuntimeProvider(agentType: AgentType): string | null {
+  if (agentType === 'ResponseAnalyzer') return 'deterministic';
+  if (agentType === 'HarnessRunner') return null;
+  return 'anthropic';
+}
+
+function getRuntimeModelName(agentType: AgentType, model: string): string | null {
+  if (agentType === 'ResponseAnalyzer') return 'response-analyzer-deterministic-v1';
+  if (agentType === 'HarnessRunner') return null;
+  return model;
+}
+
+function getRuntimeCostUsd(agentType: AgentType, tokenCount: number): number {
+  if (agentType === 'ResponseAnalyzer') return 0;
+  return tokenCount * 0.000003;
+}
+
 async function runTargetAgent(
   agentType: Exclude<AgentType, 'HarnessRunner'>,
   skillConfig: ProcessAgentRequest['skillConfig'],
@@ -742,7 +764,7 @@ async function runTargetAgent(
     case 'MessageAgent':
       return processMessageAgent(skillConfig, input, model);
     case 'ResponseAnalyzer':
-      return processResponseAnalyzer(skillConfig, input, model);
+      return processResponseAnalyzer(input);
     case 'DocumentGenerator':
       return processDocumentGenerator(skillConfig, input, model);
   }
@@ -777,40 +799,17 @@ async function processMessageAgent(
 }
 
 async function processResponseAnalyzer(
-  skillConfig: ProcessAgentRequest['skillConfig'],
   input: Record<string, unknown>,
-  model: string
 ): Promise<Record<string, unknown>> {
-  const systemPrompt = skillConfig?.system_prompt || 
-    'Analise a resposta do paciente e retorne JSON estruturado.';
-  
-  const userPrompt = `Resposta do paciente: "${input.patient_message || input.message}"
-  
-Analise e retorne JSON com:
-{
-  "sentiment": "positive|neutral|negative",
-  "urgency": "normal|urgent|critical",
-  "intent": "gratitude|question|complaint|alert",
-  "topics": ["topic1", "topic2"],
-  "suggested_action": "none|create_alert|escalate|schedule",
-  "confidence": 0.0-1.0
-}`;
+  return analyzePatientResponse({
+    message: extractPatientMessage(input),
+    messageContext: input.message_context ?? input.context ?? null,
+  }) as unknown as Record<string, unknown>;
+}
 
-  const analysis = await callClaudeAPI(systemPrompt, userPrompt, model);
-  
-  try {
-    return JSON.parse(analysis);
-  } catch {
-    return {
-      sentiment: 'neutral',
-      urgency: 'normal',
-      intent: 'question',
-      topics: [],
-      suggested_action: 'none',
-      confidence: 0.5,
-      raw_response: analysis
-    };
-  }
+function extractPatientMessage(input: Record<string, unknown>): string {
+  const candidate = input.patient_message ?? input.message ?? input.text ?? input.body ?? '';
+  return typeof candidate === 'string' ? candidate : String(candidate ?? '');
 }
 
 async function processDocumentGenerator(
