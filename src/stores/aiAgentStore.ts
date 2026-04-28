@@ -4,6 +4,8 @@ import { useAuthStore } from './authStore';
 import { buildCompositeSkillConfig, resolveSkillBundle } from '../lib/skillLoader';
 import type { AISkill, AgentExecution } from '../lib/types';
 
+type SkillBackedAgentType = AISkill['agent_type'];
+
 interface AIAgentState {
   skills: AISkill[];
   executions: AgentExecution[];
@@ -148,6 +150,13 @@ export const useAIAgentStore = create<AIAgentState>((set, get) => ({
     const orgId = useAuthStore.getState().orgId;
     if (!orgId) return null;
 
+    const skillAgentType = agentType === 'HarnessRunner'
+      ? resolveHarnessTargetAgentType(input.target_agent_type ?? input.targetAgentType)
+      : agentType;
+    const normalizedInput = agentType === 'HarnessRunner'
+      ? { ...input, target_agent_type: skillAgentType }
+      : input;
+
     const { data: skillsData, error: skillsError } = await supabase
       .from('ai_skills')
       .select('*')
@@ -161,10 +170,10 @@ export const useAIAgentStore = create<AIAgentState>((set, get) => ({
 
     const bundle = resolveSkillBundle((skillsData || []) as AISkill[], {
       orgId,
-      agentType,
+      agentType: skillAgentType,
       skillSlug,
-      procedureType: input.procedure_type ?? input.procedureType ?? input.procedure ?? input.procedure_name,
-      messageType: input.message_type ?? input.messageType ?? input.type,
+      procedureType: normalizedInput.procedure_type ?? normalizedInput.procedureType ?? normalizedInput.procedure ?? normalizedInput.procedure_name,
+      messageType: normalizedInput.message_type ?? normalizedInput.messageType ?? normalizedInput.type,
     });
     const skill = buildCompositeSkillConfig(bundle);
 
@@ -178,10 +187,11 @@ export const useAIAgentStore = create<AIAgentState>((set, get) => ({
       patient_id: patientId,
       agent_type: agentType,
       skill_name: skill?.name,
-      input_payload: input,
+      input_payload: normalizedInput,
       context: skill ? {
         skill_slug: skill.slug,
         skill_source: skill.source,
+        harness_target_agent_type: agentType === 'HarnessRunner' ? skillAgentType : null,
         skill_bundle: bundle.skills.map((item) => ({
           slug: item.slug,
           name: item.name,
@@ -225,7 +235,7 @@ export const useAIAgentStore = create<AIAgentState>((set, get) => ({
         executionId: execution.id,
         agentType,
         skillConfig: skill,
-        input,
+        input: normalizedInput,
         modelConfig: skill?.model_config
       }
     });
@@ -269,3 +279,8 @@ export const useAIAgentStore = create<AIAgentState>((set, get) => ({
     return data;
   }
 }));
+
+function resolveHarnessTargetAgentType(value: unknown): SkillBackedAgentType {
+  if (value === 'ResponseAnalyzer' || value === 'DocumentGenerator') return value;
+  return 'MessageAgent';
+}

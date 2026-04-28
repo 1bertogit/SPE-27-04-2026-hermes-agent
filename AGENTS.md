@@ -20,6 +20,8 @@
 - ✅ Migrations até `20260428000003` aplicadas no Supabase remoto e Edge Functions deployadas: `submit-nps-survey`, `stripe-cancel-subscription`, `stripe-checkout`, `stripe-webhook`, `process-agent`
 - ✅ Migration `20260428000004_add_clinical_skill_loader` aplicada no Supabase remoto: adiciona `skill_version`, `procedure_scope`, `task`, `content_markdown`, `source_kind` em `ai_skills` e semeia as 10 skills clínicas como skills de sistema
 - ✅ `SkillLoader` no frontend resolve hierarquia tenant > sistema, monta bundle para `MessageAgent` com default + protocolo operacional + procedimento + tipo de mensagem, e passa contexto para `process-agent`
+- ✅ HarnessRunner parcial implementado em `process-agent`: 8 fases fixas com `agent_logs`, dry-run padrão sem modelo, execução opcional com `execute_agent=true`, deploy remoto ativo e smoke test remoto concluído
+- ✅ RLS de `agent_executions` permite `INSERT` seguro por `org_id` com `patient_id`/`parent_execution_id` da mesma org (migrations `20260428000005` e `20260428000006`)
 - ⚠️ Runtime ainda depende de secrets externos não alterados nesta sessão (`ANTHROPIC_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`)
 - ⚠️ Repositório Git de trabalho: `SPE-27-04-2026-hermes-agent-git`, branch `feature/fase-6-billing`
 
@@ -449,7 +451,7 @@ Ao final de cada sessão, antes de qualquer commit:
 ⚠️ MessageAgent (geração de mensagens por AI) — wire parcial com `SkillLoader` + `process-agent`; depende de `ANTHROPIC_API_KEY` para teste real
 ❌ ResponseAnalyzer (classificação de respostas)
 ❌ DocumentGenerator (geração de TCI por AI)
-❌ HarnessRunner com 8 fases fixas
+⚠️ HarnessRunner com 8 fases fixas — implementado em dry-run + logs; execução real de agente alvo depende de `execute_agent=true` e secret Anthropic
 ✅ agent_logs imutáveis — migration append-only + views + wire inicial em `process-agent`
 ❌ Interface de skills no settings (admin edita)
 ✅ Skill loader (hierarquia tenant > sistema) — `src/lib/skillLoader.ts` + testes unitários + migration `20260428000004`

@@ -54,12 +54,46 @@ interface AgentLogParams {
   outputPayload?: Record<string, unknown>;
   errorMessage?: string | null;
   errorStack?: Record<string, unknown>;
-  modelProvider?: string;
-  modelName?: string;
+  modelProvider?: string | null;
+  modelName?: string | null;
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
 }
+
+interface HarnessPhaseResult {
+  status: 'completed' | 'skipped' | 'blocked';
+  output: Record<string, unknown>;
+  errorMessage?: string | null;
+}
+
+interface HarnessPhaseRecord {
+  phase: number;
+  name: string;
+  status: HarnessPhaseResult['status'] | 'failed';
+  output: Record<string, unknown> | null;
+  error_message: string | null;
+}
+
+interface HarnessContext {
+  targetAgentType: Exclude<AgentType, 'HarnessRunner'>;
+  dryRun: boolean;
+  dispatchMode: string;
+  patient: Record<string, unknown> | null;
+  agentOutput: Record<string, unknown> | null;
+  phaseRecords: HarnessPhaseRecord[];
+}
+
+const harnessPhaseNames: Record<number, string> = {
+  1: 'intake',
+  2: 'context_load',
+  3: 'skill_load',
+  4: 'guardrails',
+  5: 'plan',
+  6: 'agent_execution',
+  7: 'dispatch',
+  8: 'persist',
+};
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -105,12 +139,31 @@ Deno.serve(async (req) => {
       );
     }
 
-    const startTime = Date.now();
-    const model = skillConfig?.model_config?.model || 'claude-sonnet-4-6';
-
     let output: Record<string, unknown> = {};
     let status: 'completed' | 'failed' = 'completed';
     let errorMessage: string | null = null;
+    const startTime = Date.now();
+    const model = skillConfig?.model_config?.model || 'claude-sonnet-4-6';
+
+    if (agentType === 'HarnessRunner') {
+      const result = await processHarnessRunner(
+        supabaseAdmin,
+        execution,
+        skillConfig,
+        input,
+        model,
+        startTime,
+      );
+
+      return new Response(
+        JSON.stringify({
+          success: result.status === 'completed',
+          executionId,
+          output: result.output,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
 
     await writeAgentLog(supabaseAdmin, {
       execution,
@@ -158,9 +211,6 @@ Deno.serve(async (req) => {
         case 'DocumentGenerator':
           output = await processDocumentGenerator(skillConfig, input, model);
           break;
-        
-        case 'HarnessRunner':
-          throw new Error('HarnessRunner ainda não implementado nesta função');
 
         default:
           throw new Error(`Tipo de agente desconhecido: ${agentType}`);
@@ -257,6 +307,348 @@ Deno.serve(async (req) => {
   }
 });
 
+async function processHarnessRunner(
+  supabaseAdmin: SupabaseClient<any>,
+  execution: Record<string, unknown>,
+  skillConfig: ProcessAgentRequest['skillConfig'],
+  input: Record<string, unknown>,
+  model: string,
+  startTime: number,
+): Promise<{ status: 'completed' | 'failed'; output: Record<string, unknown> }> {
+  const context: HarnessContext = {
+    targetAgentType: resolveHarnessTargetAgentType(input.target_agent_type),
+    dryRun: input.execute_agent !== true,
+    dispatchMode: asString(input.dispatch_mode) ?? 'draft',
+    patient: null,
+    agentOutput: null,
+    phaseRecords: [],
+  };
+
+  let status: 'completed' | 'failed' = 'completed';
+  let errorMessage: string | null = null;
+
+  await writeAgentLog(supabaseAdmin, {
+    execution,
+    agentType: 'HarnessRunner',
+    eventType: 'run_started',
+    status: 'running',
+    inputPayload: input,
+    contextSnapshot: {
+      target_agent_type: context.targetAgentType,
+      dry_run: context.dryRun,
+      dispatch_mode: context.dispatchMode,
+    },
+    modelProvider: context.dryRun ? null : 'anthropic',
+    modelName: context.dryRun ? null : model,
+  });
+
+  try {
+    await runHarnessPhase(supabaseAdmin, execution, skillConfig, input, context, 1, async () => ({
+      status: 'completed',
+      output: {
+        execution_id: execution.id,
+        org_id: execution.org_id,
+        patient_id: execution.patient_id ?? null,
+        target_agent_type: context.targetAgentType,
+        dry_run: context.dryRun,
+      },
+    }));
+
+    await runHarnessPhase(supabaseAdmin, execution, skillConfig, input, context, 2, async () => {
+      const patientId = asNullableString(execution.patient_id);
+      if (!patientId) {
+        return { status: 'skipped', output: { reason: 'Sem patient_id na execucao' } };
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('patients')
+        .select('id, full_name, workflow_status, procedure_type, org_id')
+        .eq('id', patientId)
+        .single();
+
+      if (error || !data) throw new Error(error?.message ?? 'Paciente nao encontrado');
+
+      context.patient = data;
+      return {
+        status: 'completed',
+        output: {
+          patient_id: data.id,
+          workflow_status: data.workflow_status ?? null,
+          procedure_type: data.procedure_type ?? null,
+        },
+      };
+    });
+
+    await runHarnessPhase(supabaseAdmin, execution, skillConfig, input, context, 3, async () => {
+      if (!skillConfig) {
+        return {
+          status: 'skipped',
+          output: { reason: 'Nenhuma skill resolvida para o agente alvo' },
+        };
+      }
+
+      return {
+        status: 'completed',
+        output: {
+          skill_slug: skillConfig.slug ?? null,
+          skill_name: skillConfig.name ?? null,
+          skill_version: skillConfig.version ?? null,
+          skill_source: resolveSkillSource(skillConfig),
+        },
+      };
+    });
+
+    await runHarnessPhase(supabaseAdmin, execution, skillConfig, input, context, 4, async () => {
+      const blockedReasons: string[] = [];
+      if (context.targetAgentType === 'MessageAgent' && !skillConfig) {
+        blockedReasons.push('MessageAgent exige skill carregada');
+      }
+      if (context.dispatchMode !== 'draft' && context.dispatchMode !== 'manual_review') {
+        blockedReasons.push('dispatch_mode automatico ainda nao habilitado');
+      }
+
+      if (blockedReasons.length > 0) {
+        return {
+          status: 'blocked',
+          output: { blocked_reasons: blockedReasons },
+          errorMessage: blockedReasons.join('; '),
+        };
+      }
+
+      return {
+        status: 'completed',
+        output: {
+          guardrails: ['skill_required_for_message_agent', 'manual_dispatch_only'],
+          dispatch_mode: context.dispatchMode,
+        },
+      };
+    });
+
+    const guardrailRecord = context.phaseRecords.find((phase) => phase.phase === 4);
+    if (guardrailRecord?.status === 'blocked') {
+      throw new Error(guardrailRecord.error_message ?? 'HarnessRunner bloqueado por guardrail');
+    }
+
+    await runHarnessPhase(supabaseAdmin, execution, skillConfig, input, context, 5, async () => ({
+      status: 'completed',
+      output: {
+        target_agent_type: context.targetAgentType,
+        will_execute_agent: !context.dryRun,
+        will_dispatch: context.dispatchMode !== 'draft',
+        next_phase: context.dryRun ? 'persist' : 'agent_execution',
+      },
+    }));
+
+    await runHarnessPhase(supabaseAdmin, execution, skillConfig, input, context, 6, async () => {
+      if (context.dryRun) {
+        return {
+          status: 'skipped',
+          output: {
+            reason: 'execute_agent diferente de true; HarnessRunner registrou plano sem chamar modelo',
+          },
+        };
+      }
+
+      await writeAgentLog(supabaseAdmin, {
+        execution,
+        agentType: context.targetAgentType,
+        eventType: 'agent_started',
+        status: 'running',
+        harnessPhase: 6,
+        skillConfig,
+        modelProvider: 'anthropic',
+        modelName: model,
+      });
+
+      try {
+        context.agentOutput = await runTargetAgent(context.targetAgentType, skillConfig, input, model);
+
+        await writeAgentLog(supabaseAdmin, {
+          execution,
+          agentType: context.targetAgentType,
+          eventType: 'agent_completed',
+          status: 'completed',
+          harnessPhase: 6,
+          skillConfig,
+          outputPayload: context.agentOutput,
+          modelProvider: 'anthropic',
+          modelName: model,
+        });
+
+        return { status: 'completed', output: context.agentOutput };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Erro desconhecido ao executar agente alvo';
+        await writeAgentLog(supabaseAdmin, {
+          execution,
+          agentType: context.targetAgentType,
+          eventType: 'agent_failed',
+          status: 'failed',
+          harnessPhase: 6,
+          skillConfig,
+          errorMessage: message,
+          modelProvider: 'anthropic',
+          modelName: model,
+        });
+        throw error;
+      }
+    });
+
+    await runHarnessPhase(supabaseAdmin, execution, skillConfig, input, context, 7, async () => {
+      if (context.dispatchMode === 'draft') {
+        return {
+          status: 'skipped',
+          output: { reason: 'Modo draft: sem disparo automatico' },
+        };
+      }
+
+      return {
+        status: 'skipped',
+        output: {
+          reason: 'Dispatch manual_review registrado; envio automatico deve ser aprovado em etapa posterior',
+        },
+      };
+    });
+
+    await runHarnessPhase(supabaseAdmin, execution, skillConfig, input, context, 8, async () => ({
+      status: 'completed',
+      output: {
+        final_status: 'completed',
+        phase_count: context.phaseRecords.length + 1,
+      },
+    }));
+  } catch (error) {
+    status = 'failed';
+    errorMessage = error instanceof Error ? error.message : 'Erro desconhecido no HarnessRunner';
+  }
+
+  const output = {
+    harness: {
+      target_agent_type: context.targetAgentType,
+      dry_run: context.dryRun,
+      dispatch_mode: context.dispatchMode,
+      phases: context.phaseRecords,
+    },
+    agent_output: context.agentOutput,
+  };
+
+  const inputTokens = Math.round(JSON.stringify(input).length / 4);
+  const outputTokens = Math.round(JSON.stringify(output).length / 4);
+  const costUsd = context.dryRun ? 0 : (inputTokens + outputTokens) * 0.000003;
+
+  await writeAgentLog(supabaseAdmin, {
+    execution,
+    agentType: 'HarnessRunner',
+    eventType: status === 'completed' ? 'run_completed' : 'run_failed',
+    status,
+    harnessPhase: 8,
+    skillConfig,
+    outputPayload: output,
+    errorMessage,
+    modelProvider: context.dryRun ? null : 'anthropic',
+    modelName: context.dryRun ? null : model,
+    inputTokens,
+    outputTokens,
+    costUsd,
+  });
+
+  const { error: updateError } = await supabaseAdmin
+    .from('agent_executions')
+    .update({
+      status,
+      output_payload: output,
+      completed_at: new Date().toISOString(),
+      duration_ms: Date.now() - startTime,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cost_usd: costUsd,
+      error_message: errorMessage,
+      harness_phase: 8,
+      harness_status: status,
+    })
+    .eq('id', asString(execution.id));
+
+  if (updateError) throw new Error(updateError.message);
+
+  return { status, output };
+}
+
+async function runHarnessPhase(
+  supabaseAdmin: SupabaseClient<any>,
+  execution: Record<string, unknown>,
+  skillConfig: ProcessAgentRequest['skillConfig'],
+  input: Record<string, unknown>,
+  context: HarnessContext,
+  phase: number,
+  run: () => Promise<HarnessPhaseResult>,
+): Promise<void> {
+  const name = harnessPhaseNames[phase] ?? `phase_${phase}`;
+
+  await writeAgentLog(supabaseAdmin, {
+    execution,
+    agentType: 'HarnessRunner',
+    eventType: 'phase_started',
+    status: 'running',
+    harnessPhase: phase,
+    skillConfig,
+    contextSnapshot: {
+      phase_name: name,
+      target_agent_type: context.targetAgentType,
+      dry_run: context.dryRun,
+    },
+  });
+
+  try {
+    const result = await run();
+    const eventType: AgentLogEvent = result.status === 'skipped'
+      ? 'phase_skipped'
+      : result.status === 'blocked'
+        ? 'guardrail_blocked'
+        : 'phase_completed';
+
+    await writeAgentLog(supabaseAdmin, {
+      execution,
+      agentType: 'HarnessRunner',
+      eventType,
+      status: result.status,
+      harnessPhase: phase,
+      skillConfig,
+      inputPayload: phase === 1 ? input : undefined,
+      outputPayload: result.output,
+      errorMessage: result.errorMessage ?? null,
+      contextSnapshot: { phase_name: name },
+    });
+
+    context.phaseRecords.push({
+      phase,
+      name,
+      status: result.status,
+      output: result.output,
+      error_message: result.errorMessage ?? null,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Erro desconhecido';
+    await writeAgentLog(supabaseAdmin, {
+      execution,
+      agentType: 'HarnessRunner',
+      eventType: 'phase_failed',
+      status: 'failed',
+      harnessPhase: phase,
+      skillConfig,
+      errorMessage: message,
+      contextSnapshot: { phase_name: name },
+    });
+
+    context.phaseRecords.push({
+      phase,
+      name,
+      status: 'failed',
+      output: null,
+      error_message: message,
+    });
+    throw error;
+  }
+}
+
 async function writeAgentLog(
   supabaseAdmin: SupabaseClient<any>,
   params: AgentLogParams
@@ -333,6 +725,27 @@ function stableJson(value: unknown): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
     .join(',')}}`;
+}
+
+function resolveHarnessTargetAgentType(value: unknown): Exclude<AgentType, 'HarnessRunner'> {
+  if (value === 'ResponseAnalyzer' || value === 'DocumentGenerator') return value;
+  return 'MessageAgent';
+}
+
+async function runTargetAgent(
+  agentType: Exclude<AgentType, 'HarnessRunner'>,
+  skillConfig: ProcessAgentRequest['skillConfig'],
+  input: Record<string, unknown>,
+  model: string,
+): Promise<Record<string, unknown>> {
+  switch (agentType) {
+    case 'MessageAgent':
+      return processMessageAgent(skillConfig, input, model);
+    case 'ResponseAnalyzer':
+      return processResponseAnalyzer(skillConfig, input, model);
+    case 'DocumentGenerator':
+      return processDocumentGenerator(skillConfig, input, model);
+  }
 }
 
 async function processMessageAgent(
