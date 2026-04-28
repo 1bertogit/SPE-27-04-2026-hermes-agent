@@ -379,6 +379,11 @@ export interface AISkill {
   name: string;
   slug: string;
   description: string | null;
+  skill_version: string;
+  procedure_scope: string;
+  task: string | null;
+  content_markdown: string | null;
+  source_kind: 'system_seed' | 'tenant_override' | 'manual' | 'imported_docx';
   agent_type: 'MessageAgent' | 'ResponseAnalyzer' | 'DocumentGenerator';
   system_prompt: string;
   user_prompt_template: string | null;

@@ -9,7 +9,7 @@
 
 ## Latest Build Status
 
-⚠️ **Fase 4 PREP INICIADA** — Protocolos clínicos convertidos para skills (27/04/2026)
+⚠️ **Fase 4 SKILL LOADER PARCIAL** — Protocolos clínicos no banco + loader tenant/sistema (28/04/2026)
 
 - ✅ 10 documentos `.docx` de `docs/source-documents/` convertidos para `skills/*.skill.md` usando `python-docx`
 - ✅ Skills criadas: `endomidface_browlift`, `deep_neck`, `deep_plane`, `contrato`, `aui`, `ficha_precadastro`, `preparo_preoperatorio`, `nps`, `protocolo_operacional`, `tci`
@@ -18,8 +18,10 @@
 - ✅ `process-agent` passou a registrar eventos de fase/agente em `agent_logs` mantendo compatibilidade com `agent_executions`
 - ✅ Correções de review implementadas localmente (28/04/2026): limpeza de policies antigas por `user_id`, gate SC-13 no frontend + trigger SQL, NPS público via Edge Function, Stripe checkout/webhook/cancelamento, `process-agent` conectado à Anthropic API e cards sem `<button>` aninhado
 - ✅ Migrations até `20260428000003` aplicadas no Supabase remoto e Edge Functions deployadas: `submit-nps-survey`, `stripe-cancel-subscription`, `stripe-checkout`, `stripe-webhook`, `process-agent`
-- ⚠️ Runtime ainda depende de secrets externos não alterados nesta sessão (`ANTHROPIC_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`); MessageAgent ainda não carrega skills em runtime
-- ⚠️ Repositório Git de trabalho: `SPE-27-04-2026-hermes-agent-git`, branch `feature/fase-6-billing`, commit local `ec123f7e`
+- ✅ Migration `20260428000004_add_clinical_skill_loader` aplicada no Supabase remoto: adiciona `skill_version`, `procedure_scope`, `task`, `content_markdown`, `source_kind` em `ai_skills` e semeia as 10 skills clínicas como skills de sistema
+- ✅ `SkillLoader` no frontend resolve hierarquia tenant > sistema, monta bundle para `MessageAgent` com default + protocolo operacional + procedimento + tipo de mensagem, e passa contexto para `process-agent`
+- ⚠️ Runtime ainda depende de secrets externos não alterados nesta sessão (`ANTHROPIC_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`)
+- ⚠️ Repositório Git de trabalho: `SPE-27-04-2026-hermes-agent-git`, branch `feature/fase-6-billing`
 
 ✅ **Fase 3 COMPLETA** — Alertas WhatsApp MVP funcional (17/04/2026)
 
@@ -441,16 +443,16 @@ Ao final de cada sessão, antes de qualquer commit:
 ⚠️ Pendente pós-MVP: 15 fluxos de alerta restantes (3 MVP implementados)
 ⚠️ Pendente pós-MVP: substituir ngrok por solução permanente
 
-### Fase 4 — AI + Skills ⚠️ PREP INICIADA
+### Fase 4 — AI + Skills ⚠️ SKILL LOADER PARCIAL
 
 ✅ 10 protocolos clínicos convertidos de `.docx` para `skills/*.skill.md` (Fase 4 prep, 27/04/2026)
-❌ MessageAgent (geração de mensagens por AI)
+⚠️ MessageAgent (geração de mensagens por AI) — wire parcial com `SkillLoader` + `process-agent`; depende de `ANTHROPIC_API_KEY` para teste real
 ❌ ResponseAnalyzer (classificação de respostas)
 ❌ DocumentGenerator (geração de TCI por AI)
 ❌ HarnessRunner com 8 fases fixas
-✅ agent_logs imutáveis — migration append-only + views + wire inicial em `process-agent` (pendente aplicar/deployar)
+✅ agent_logs imutáveis — migration append-only + views + wire inicial em `process-agent`
 ❌ Interface de skills no settings (admin edita)
-❌ Skill loader (hierarquia tenant > sistema)
+✅ Skill loader (hierarquia tenant > sistema) — `src/lib/skillLoader.ts` + testes unitários + migration `20260428000004`
 
 ### Fase 5 — NPS e Dashboard ❌ NÃO INICIADA
 

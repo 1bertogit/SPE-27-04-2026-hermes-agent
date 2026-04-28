@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from './authStore';
+import { buildCompositeSkillConfig, resolveSkillBundle } from '../lib/skillLoader';
 import type { AISkill, AgentExecution } from '../lib/types';
 
 interface AIAgentState {
@@ -147,25 +148,48 @@ export const useAIAgentStore = create<AIAgentState>((set, get) => ({
     const orgId = useAuthStore.getState().orgId;
     if (!orgId) return null;
 
-    // Buscar skill se fornecida
-    let skill: AISkill | null = null;
-    if (skillSlug) {
-      const { data } = await supabase
-        .from('ai_skills')
-        .select('*')
-        .eq('slug', skillSlug)
-        .eq('org_id', orgId)
-        .single();
-      skill = data;
+    const { data: skillsData, error: skillsError } = await supabase
+      .from('ai_skills')
+      .select('*')
+      .eq('is_active', true)
+      .order('priority', { ascending: true });
+
+    if (skillsError) {
+      set({ error: skillsError.message });
+      return null;
     }
 
-    // Criar execução
+    const bundle = resolveSkillBundle((skillsData || []) as AISkill[], {
+      orgId,
+      agentType,
+      skillSlug,
+      procedureType: input.procedure_type ?? input.procedureType ?? input.procedure ?? input.procedure_name,
+      messageType: input.message_type ?? input.messageType ?? input.type,
+    });
+    const skill = buildCompositeSkillConfig(bundle);
+
+    if (skillSlug && !skill) {
+      set({ error: `Skill "${skillSlug}" não encontrada ou inativa` });
+      return null;
+    }
+
     const executionData: Partial<AgentExecution> = {
       org_id: orgId,
       patient_id: patientId,
       agent_type: agentType,
       skill_name: skill?.name,
       input_payload: input,
+      context: skill ? {
+        skill_slug: skill.slug,
+        skill_source: skill.source,
+        skill_bundle: bundle.skills.map((item) => ({
+          slug: item.slug,
+          name: item.name,
+          version: item.skill_version,
+          source: item.is_system ? 'system_db' : 'tenant_db',
+          procedure_scope: item.procedure_scope,
+        })),
+      } : null,
       parent_execution_id: parentExecutionId,
       status: 'running',
       started_at: new Date().toISOString()
