@@ -1,0 +1,9 @@
+-- Historical migration placeholder.
+--
+-- The remote project has version 20260417050001 applied for the
+-- pg_cron_service_role_key Vault secret. The original local migration from
+-- another workspace contains a service-role JWT and must not be copied into
+-- this repository.
+--
+-- Keep this file present so Supabase CLI can reconcile local and remote
+-- migration history. Do not put secrets in migrations.

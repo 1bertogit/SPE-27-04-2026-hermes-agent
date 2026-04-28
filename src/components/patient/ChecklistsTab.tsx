@@ -128,9 +128,18 @@ export function ChecklistsTab({ patientId }: Props) {
 
             return (
               <Card key={cl.id} padding={false}>
-                <button
-                  className="w-full flex items-center gap-4 px-4 py-3.5 text-left hover:bg-editorial-cream/20 dark:hover:bg-white/5 transition-colors"
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isExpanded}
+                  className="w-full flex items-center gap-4 px-4 py-3.5 text-left hover:bg-editorial-cream/20 dark:hover:bg-white/5 transition-colors cursor-pointer"
                   onClick={() => toggleExpand(cl.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleExpand(cl.id);
+                    }
+                  }}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -158,13 +167,14 @@ export function ChecklistsTab({ patientId }: Props) {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDeleteChecklist(cl.id); }}
+                      aria-label="Remover checklist"
                       className="p-1 rounded text-editorial-muted hover:text-editorial-rose hover:bg-editorial-rose/10 transition-colors"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                     {isExpanded ? <ChevronUp className="h-4 w-4 text-editorial-muted" /> : <ChevronDown className="h-4 w-4 text-editorial-muted" />}
                   </div>
-                </button>
+                </div>
 
                 {isExpanded && (
                   <div className="border-t border-editorial-cream dark:border-editorial-navy-light/20">

@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from 'npm:@supabase/supabase-js@2.57.4';
 
 interface CheckoutRequest {
   planId: string;
@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     // Buscar perfil e org
     const { data: profile } = await supabaseClient
       .from('profiles')
-      .select('org_id, name')
+      .select('org_id, full_name')
       .eq('id', user.id)
       .single();
 
@@ -91,9 +91,10 @@ Deno.serve(async (req) => {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-          email: user.email,
-          name: profile.name,
-          metadata: JSON.stringify({ org_id: profile.org_id, user_id: user.id }),
+          email: user.email ?? '',
+          name: profile.full_name ?? user.email ?? '',
+          'metadata[org_id]': profile.org_id,
+          'metadata[user_id]': user.id,
         }),
       });
 
@@ -116,8 +117,11 @@ Deno.serve(async (req) => {
         mode: 'subscription',
         success_url: successUrl,
         cancel_url: cancelUrl,
+        'metadata[org_id]': profile.org_id,
+        'metadata[plan_id]': planId,
         'subscription_data[trial_period_days]': '14',
-        'subscription_data[metadata]': JSON.stringify({ org_id: profile.org_id, plan_id: planId }),
+        'subscription_data[metadata][org_id]': profile.org_id,
+        'subscription_data[metadata][plan_id]': planId,
       }),
     });
 
@@ -137,7 +141,7 @@ Deno.serve(async (req) => {
     });
 
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Checkout failed' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

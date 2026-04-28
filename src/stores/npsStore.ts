@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import type { SatisfactionSurvey, Referral, NPSMetrics } from '../lib/types';
+import { useAuthStore } from './authStore';
 
 interface NPSState {
   surveys: SatisfactionSurvey[];
@@ -47,7 +48,7 @@ export const useNPSStore = create<NPSState>((set, get) => ({
       .from('referrals')
       .select(`
         *,
-        referrer:referrer_patient_id (name, phone)
+        referrer:referrer_patient_id (full_name, phone)
       `)
       .order('created_at', { ascending: false });
     
@@ -99,10 +100,14 @@ export const useNPSStore = create<NPSState>((set, get) => ({
   },
 
   createSurveyToken: async (patientId: string) => {
+    const orgId = useAuthStore.getState().orgId;
+    if (!orgId) return null;
+
     const token = crypto.randomUUID();
     const { error } = await supabase
       .from('nps_survey_tokens')
       .insert({
+        org_id: orgId,
         patient_id: patientId,
         token,
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
@@ -113,50 +118,17 @@ export const useNPSStore = create<NPSState>((set, get) => ({
   },
 
   submitNPSSurvey: async (token: string, score: number, feedback?: string) => {
-    // Verificar token válido
-    const { data: tokenData } = await supabase
-      .from('nps_survey_tokens')
-      .select('patient_id, used_at')
-      .eq('token', token)
-      .single();
-    
-    if (!tokenData || tokenData.used_at) return false;
-
-    // Criar survey
-    const { data: survey, error } = await supabase
-      .from('satisfaction_surveys')
-      .insert({
-        patient_id: tokenData.patient_id,
-        nps_score: score,
-        feedback,
-        completed: true
-      })
-      .select()
-      .single();
-    
-    if (error) return false;
-
-    // Marcar token como usado
-    await supabase
-      .from('nps_survey_tokens')
-      .update({ used_at: new Date().toISOString(), survey_id: survey.id })
-      .eq('token', token);
-
-    // Se promoter (>=9), criar referral automaticamente
-    if (score >= 9) {
-      await supabase.from('referrals').insert({
-        referrer_patient_id: tokenData.patient_id,
-        nps_survey_id: survey.id,
-        referred_name: '',
-        status: 'pending'
-      });
-    }
-
-    return true;
+    const { error } = await supabase.functions.invoke('submit-nps-survey', {
+      body: { token, score, feedback },
+    });
+    return !error;
   },
 
   createReferral: async (referral) => {
-    const { error } = await supabase.from('referrals').insert(referral);
+    const orgId = useAuthStore.getState().orgId;
+    if (!orgId) return false;
+
+    const { error } = await supabase.from('referrals').insert({ ...referral, org_id: orgId });
     return !error;
   },
 

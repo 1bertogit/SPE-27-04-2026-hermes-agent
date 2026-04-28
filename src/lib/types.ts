@@ -278,6 +278,7 @@ export interface ImplantRecord {
 
 export interface SatisfactionSurvey {
   id: string;
+  org_id: string;
   patient_id: string;
   user_id: string;
   evaluation_id: string | null;
@@ -288,6 +289,7 @@ export interface SatisfactionSurvey {
   what_could_improve: string | null;
   would_recommend: boolean | null;
   overall_rating: number | null;
+  completed: boolean;
   survey_date: string;
   created_at: string;
   patient?: Patient;
@@ -421,6 +423,79 @@ export interface AgentExecution {
   locked_by: string | null;
   locked_at: string | null;
   created_at: string;
+}
+
+export interface AgentLog {
+  id: string;
+  org_id: string;
+  patient_id: string | null;
+  execution_id: string | null;
+  run_id: string;
+  parent_run_id: string | null;
+  agent_type: 'HarnessRunner' | 'MessageAgent' | 'ResponseAnalyzer' | 'DocumentGenerator';
+  harness_phase: number | null;
+  event_type:
+    | 'run_started'
+    | 'run_completed'
+    | 'run_failed'
+    | 'run_cancelled'
+    | 'phase_started'
+    | 'phase_completed'
+    | 'phase_failed'
+    | 'phase_skipped'
+    | 'agent_started'
+    | 'agent_completed'
+    | 'agent_failed'
+    | 'guardrail_blocked'
+    | 'dispatch_queued'
+    | 'dispatch_completed'
+    | 'dispatch_failed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped' | 'blocked';
+  skill_slug: string | null;
+  skill_name: string | null;
+  skill_version: string | null;
+  skill_source: 'system_file' | 'system_db' | 'tenant_db' | 'none' | null;
+  input_hash: string | null;
+  input_payload: Record<string, unknown>;
+  context_snapshot: Record<string, unknown> | null;
+  output_payload: Record<string, unknown> | null;
+  error_message: string | null;
+  error_stack: Record<string, unknown> | null;
+  model_provider: string | null;
+  model_name: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
+  actor_user_id: string | null;
+  created_at: string;
+}
+
+export interface AgentRunLatest {
+  latest_log_id: string;
+  org_id: string;
+  patient_id: string | null;
+  execution_id: string | null;
+  run_id: string;
+  parent_run_id: string | null;
+  agent_type: AgentLog['agent_type'];
+  harness_phase: number | null;
+  event_type: AgentLog['event_type'];
+  status: AgentLog['status'];
+  skill_slug: string | null;
+  skill_name: string | null;
+  skill_version: string | null;
+  skill_source: AgentLog['skill_source'];
+  output_payload: Record<string, unknown> | null;
+  error_message: string | null;
+  model_provider: string | null;
+  model_name: string | null;
+  started_at: string;
+  last_event_at: string;
+  completed_at: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  event_count: number;
 }
 
 // Billing

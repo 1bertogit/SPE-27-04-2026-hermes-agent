@@ -146,6 +146,21 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       return { error: check.reason ?? 'Transição não permitida.' };
     }
 
+    if (toStatus === 'cirurgia_realizada') {
+      const { data: signedOutRecord, error: surgicalError } = await supabase
+        .from('surgical_records')
+        .select('id')
+        .eq('patient_id', patientId)
+        .eq('oms_sign_out_done', true)
+        .limit(1)
+        .maybeSingle();
+
+      if (surgicalError) return { error: surgicalError.message };
+      if (!signedOutRecord) {
+        return { error: 'SC-13: cirurgia realizada requer registro cirúrgico com CIO Sign Out assinado.' };
+      }
+    }
+
     const { data, error } = await supabase
       .from('patients')
       .update({ workflow_status: toStatus, updated_at: new Date().toISOString() })

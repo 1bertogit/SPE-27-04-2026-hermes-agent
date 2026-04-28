@@ -1,9 +1,35 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.4';
+
+type AgentType = 'HarnessRunner' | 'MessageAgent' | 'ResponseAnalyzer' | 'DocumentGenerator';
+type AgentLogStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped' | 'blocked';
+type AgentLogEvent =
+  | 'run_started'
+  | 'run_completed'
+  | 'run_failed'
+  | 'run_cancelled'
+  | 'phase_started'
+  | 'phase_completed'
+  | 'phase_failed'
+  | 'phase_skipped'
+  | 'agent_started'
+  | 'agent_completed'
+  | 'agent_failed'
+  | 'guardrail_blocked'
+  | 'dispatch_queued'
+  | 'dispatch_completed'
+  | 'dispatch_failed';
+type SkillSource = 'system_file' | 'system_db' | 'tenant_db' | 'none';
 
 interface ProcessAgentRequest {
   executionId: string;
-  agentType: 'MessageAgent' | 'ResponseAnalyzer' | 'DocumentGenerator';
+  agentType: AgentType;
   skillConfig?: {
+    name?: string;
+    slug?: string;
+    org_id?: string | null;
+    is_system?: boolean;
+    version?: string;
+    source?: SkillSource;
     system_prompt: string;
     user_prompt_template?: string;
     model_config?: {
@@ -14,6 +40,25 @@ interface ProcessAgentRequest {
   };
   input: Record<string, unknown>;
   modelConfig?: Record<string, unknown>;
+}
+
+interface AgentLogParams {
+  execution: Record<string, unknown>;
+  agentType: AgentType;
+  eventType: AgentLogEvent;
+  status: AgentLogStatus;
+  harnessPhase?: number;
+  skillConfig?: ProcessAgentRequest['skillConfig'];
+  inputPayload?: Record<string, unknown>;
+  contextSnapshot?: Record<string, unknown>;
+  outputPayload?: Record<string, unknown>;
+  errorMessage?: string | null;
+  errorStack?: Record<string, unknown>;
+  modelProvider?: string;
+  modelName?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
 }
 
 const corsHeaders = {
@@ -67,6 +112,38 @@ Deno.serve(async (req) => {
     let status: 'completed' | 'failed' = 'completed';
     let errorMessage: string | null = null;
 
+    await writeAgentLog(supabaseAdmin, {
+      execution,
+      agentType,
+      eventType: 'phase_started',
+      status: 'running',
+      harnessPhase: 6,
+      skillConfig,
+      inputPayload: input,
+      contextSnapshot: {
+        execution_status: execution.status,
+        parent_execution_id: execution.parent_execution_id ?? null,
+        execution_chain: execution.execution_chain ?? null,
+      },
+      modelProvider: 'anthropic',
+      modelName: model,
+    });
+
+    await writeAgentLog(supabaseAdmin, {
+      execution,
+      agentType,
+      eventType: 'agent_started',
+      status: 'running',
+      harnessPhase: 6,
+      skillConfig,
+      contextSnapshot: {
+        skill_slug: skillConfig?.slug ?? null,
+        skill_source: resolveSkillSource(skillConfig),
+      },
+      modelProvider: 'anthropic',
+      modelName: model,
+    });
+
     try {
       // Processar baseado no tipo de agente
       switch (agentType) {
@@ -82,6 +159,9 @@ Deno.serve(async (req) => {
           output = await processDocumentGenerator(skillConfig, input, model);
           break;
         
+        case 'HarnessRunner':
+          throw new Error('HarnessRunner ainda não implementado nesta função');
+
         default:
           throw new Error(`Tipo de agente desconhecido: ${agentType}`);
       }
@@ -95,8 +175,37 @@ Deno.serve(async (req) => {
     const outputTokens = JSON.stringify(output).length / 4;
     const costUsd = (inputTokens + outputTokens) * 0.000003; // ~$3/million tokens
 
+    await writeAgentLog(supabaseAdmin, {
+      execution,
+      agentType,
+      eventType: status === 'completed' ? 'phase_completed' : 'phase_failed',
+      status,
+      harnessPhase: 6,
+      skillConfig,
+      outputPayload: output,
+      errorMessage,
+      modelProvider: 'anthropic',
+      modelName: model,
+    });
+
+    await writeAgentLog(supabaseAdmin, {
+      execution,
+      agentType,
+      eventType: status === 'completed' ? 'agent_completed' : 'agent_failed',
+      status,
+      harnessPhase: 6,
+      skillConfig,
+      outputPayload: output,
+      errorMessage,
+      modelProvider: 'anthropic',
+      modelName: model,
+      inputTokens: Math.round(inputTokens),
+      outputTokens: Math.round(outputTokens),
+      costUsd,
+    });
+
     // Atualizar execução
-    await supabaseAdmin
+    const { error: updateError } = await supabaseAdmin
       .from('agent_executions')
       .update({
         status,
@@ -109,6 +218,22 @@ Deno.serve(async (req) => {
         error_message: errorMessage
       })
       .eq('id', executionId);
+
+    if (updateError) {
+      await writeAgentLog(supabaseAdmin, {
+        execution,
+        agentType,
+        eventType: 'run_failed',
+        status: 'failed',
+        harnessPhase: 8,
+        skillConfig,
+        outputPayload: output,
+        errorMessage: updateError.message,
+        modelProvider: 'anthropic',
+        modelName: model,
+      });
+      throw new Error(updateError.message);
+    }
 
     return new Response(
       JSON.stringify({ 
@@ -132,6 +257,84 @@ Deno.serve(async (req) => {
   }
 });
 
+async function writeAgentLog(
+  supabaseAdmin: SupabaseClient<any>,
+  params: AgentLogParams
+): Promise<void> {
+  const executionId = asString(params.execution.id);
+  const orgId = asString(params.execution.org_id);
+
+  if (!executionId || !orgId) {
+    throw new Error('Execução sem id/org_id para agent_logs');
+  }
+
+  const inputPayload = params.inputPayload ?? {};
+  const { error } = await supabaseAdmin.from('agent_logs').insert({
+    org_id: orgId,
+    patient_id: asNullableString(params.execution.patient_id),
+    execution_id: executionId,
+    run_id: executionId,
+    parent_run_id: asNullableString(params.execution.parent_execution_id),
+    agent_type: params.agentType,
+    harness_phase: params.harnessPhase ?? null,
+    event_type: params.eventType,
+    status: params.status,
+    skill_slug: params.skillConfig?.slug ?? null,
+    skill_name: params.skillConfig?.name ?? null,
+    skill_version: params.skillConfig?.version ?? null,
+    skill_source: resolveSkillSource(params.skillConfig),
+    input_hash: Object.keys(inputPayload).length > 0 ? await sha256Hex(inputPayload) : null,
+    input_payload: inputPayload,
+    context_snapshot: params.contextSnapshot ?? null,
+    output_payload: params.outputPayload ?? null,
+    error_message: params.errorMessage ?? null,
+    error_stack: params.errorStack ?? null,
+    model_provider: params.modelProvider ?? null,
+    model_name: params.modelName ?? null,
+    input_tokens: params.inputTokens ?? null,
+    output_tokens: params.outputTokens ?? null,
+    cost_usd: params.costUsd ?? null,
+    actor_user_id: asNullableString(params.inputPayload?.actor_user_id),
+  });
+
+  if (error) throw error;
+}
+
+function resolveSkillSource(skillConfig?: ProcessAgentRequest['skillConfig']): SkillSource {
+  if (!skillConfig) return 'none';
+  if (skillConfig.source) return skillConfig.source;
+  if (skillConfig.is_system) return 'system_db';
+  if (skillConfig.org_id) return 'tenant_db';
+  return 'system_db';
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function asNullableString(value: unknown): string | null {
+  return asString(value);
+}
+
+async function sha256Hex(value: unknown): Promise<string> {
+  const encoded = new TextEncoder().encode(stableJson(value));
+  const digest = await crypto.subtle.digest('SHA-256', encoded);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(',')}}`;
+}
+
 async function processMessageAgent(
   skillConfig: ProcessAgentRequest['skillConfig'],
   input: Record<string, unknown>,
@@ -151,7 +354,6 @@ async function processMessageAgent(
     );
   });
 
-  // Chamar Claude API (simulado - em produção usar API real)
   const message = await callClaudeAPI(systemPrompt, userPrompt, model);
   
   return {
@@ -235,20 +437,40 @@ Estrutura requerida:
   };
 }
 
-// Função mock da API Claude - em produção, conectar com API real
 async function callClaudeAPI(
   systemPrompt: string,
   userPrompt: string,
   model: string
 ): Promise<string> {
-  // Simulação de resposta
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  return `[Resposta gerada por ${model}]
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!apiKey) {
+    throw new Error('ANTHROPIC_API_KEY não configurada para process-agent');
+  }
 
-${systemPrompt.slice(0, 50)}...
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    }),
+  });
 
-Para: ${userPrompt.slice(0, 100)}...
+  const body = await response.json();
+  if (!response.ok || body.error) {
+    throw new Error(body.error?.message ?? 'Erro ao chamar Anthropic API');
+  }
 
-Esta é uma resposta simulada. Em produção, conecte com a API da Anthropic.`;
+  const textBlock = body.content?.find((block: { type?: string; text?: string }) => block.type === 'text');
+  if (!textBlock?.text) {
+    throw new Error('Anthropic API retornou resposta sem texto');
+  }
+
+  return textBlock.text;
 }

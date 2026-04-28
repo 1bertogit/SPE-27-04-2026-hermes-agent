@@ -142,13 +142,9 @@ export const useBillingStore = create<BillingState>((set, get) => ({
     }
 
     try {
-      // Aqui chamaria edge function para cancelar no Stripe
-      // Por enquanto, apenas atualiza localmente
-      const { error } = await supabase
-        .from('org_subscriptions')
-        .update({ cancel_at_period_end: true })
-        .eq('id', subscription.id);
-
+      const { error } = await supabase.functions.invoke('stripe-cancel-subscription', {
+        body: { subscriptionId: subscription.id },
+      });
       if (error) throw error;
       
       await get().fetchCurrentSubscription();

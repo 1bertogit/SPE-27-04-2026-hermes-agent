@@ -166,9 +166,18 @@ export function SurgicalTab({ patientId }: Props) {
             const hasImplants = (rec.implants ?? []).length > 0;
             return (
               <Card key={rec.id} padding={false}>
-                <button
-                  className="w-full flex items-center gap-4 px-4 py-3.5 text-left hover:bg-editorial-cream/20 dark:hover:bg-white/5 transition-colors"
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isExpanded}
+                  className="w-full flex items-center gap-4 px-4 py-3.5 text-left hover:bg-editorial-cream/20 dark:hover:bg-white/5 transition-colors cursor-pointer"
                   onClick={() => toggleExpand(rec.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleExpand(rec.id);
+                    }
+                  }}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -193,15 +202,15 @@ export function SurgicalTab({ patientId }: Props) {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={(e) => { e.stopPropagation(); openEdit(rec); }} className="p-1.5 rounded text-editorial-muted hover:text-editorial-navy dark:hover:text-editorial-cream hover:bg-editorial-cream/50 transition-colors">
+                    <button aria-label="Editar registro cirúrgico" onClick={(e) => { e.stopPropagation(); openEdit(rec); }} className="p-1.5 rounded text-editorial-muted hover:text-editorial-navy dark:hover:text-editorial-cream hover:bg-editorial-cream/50 transition-colors">
                       <Scissors className="h-3.5 w-3.5" />
                     </button>
-                    <button onClick={(e) => { e.stopPropagation(); deleteRecord(rec.id); }} className="p-1.5 rounded text-editorial-muted hover:text-editorial-rose hover:bg-editorial-rose/10 transition-colors">
+                    <button aria-label="Remover registro cirúrgico" onClick={(e) => { e.stopPropagation(); deleteRecord(rec.id); }} className="p-1.5 rounded text-editorial-muted hover:text-editorial-rose hover:bg-editorial-rose/10 transition-colors">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                     {isExpanded ? <ChevronUp className="h-4 w-4 text-editorial-muted" /> : <ChevronDown className="h-4 w-4 text-editorial-muted" />}
                   </div>
-                </button>
+                </div>
 
                 {isExpanded && (
                   <div className="border-t border-editorial-cream dark:border-editorial-navy-light/20 px-4 py-4 space-y-4">

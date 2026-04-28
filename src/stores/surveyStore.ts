@@ -7,7 +7,7 @@ interface SurveyState {
   surveys: SatisfactionSurvey[];
   loading: boolean;
   fetchSurveys: (patientId?: string) => Promise<void>;
-  createSurvey: (data: Omit<SatisfactionSurvey, 'id' | 'user_id' | 'created_at' | 'patient'>) => Promise<{ id: string | null; error: string | null }>;
+  createSurvey: (data: Omit<SatisfactionSurvey, 'id' | 'org_id' | 'user_id' | 'created_at' | 'completed' | 'patient'>) => Promise<{ id: string | null; error: string | null }>;
   updateSurvey: (id: string, data: Partial<SatisfactionSurvey>) => Promise<{ error: string | null }>;
   deleteSurvey: (id: string) => Promise<{ error: string | null }>;
   getNpsMetrics: () => { promoters: number; neutrals: number; detractors: number; nps: number; total: number };
@@ -40,7 +40,7 @@ export const useSurveyStore = create<SurveyState>((set, get) => ({
 
     const { data, error } = await supabase
       .from('satisfaction_surveys')
-      .insert({ ...surveyData, user_id: user.id, org_id: orgId })
+      .insert({ ...surveyData, user_id: user.id, org_id: orgId, completed: true })
       .select('id')
       .maybeSingle();
 
